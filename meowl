@@ -7672,16 +7672,26 @@ end
         card.AnchorPoint = Vector2.new(0.5, 0.5)
         card.Position = UDim2.fromScale(0.5, 0.5)
         card.Size = UDim2.fromOffset(W, H)
-        card.BackgroundColor3 = Theme.panel
+        card.BackgroundTransparency = 1
         card.BorderSizePixel = 0
         card.GroupTransparency = 1
         card.Parent = sg
         Instance.new("UICorner", card).CornerRadius = UDim.new(0, 22)
-        local bgg = Instance.new("UIGradient", card)
+        -- gradient lives on a background layer: a UIGradient directly on a
+        -- CanvasGroup would tint (darken) every child, including the text
+        local bgLayer = Instance.new("Frame")
+        bgLayer.Name = "Bg"
+        bgLayer.ZIndex = 0
+        bgLayer.Size = UDim2.fromScale(1, 1)
+        bgLayer.BackgroundColor3 = Color3.new(1, 1, 1)
+        bgLayer.BorderSizePixel = 0
+        bgLayer.Parent = card
+        Instance.new("UICorner", bgLayer).CornerRadius = UDim.new(0, 22)
+        local bgg = Instance.new("UIGradient", bgLayer)
         bgg.Rotation = 90
         bgg.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 20, 9)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 6, 4)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(46, 27, 12)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 11, 7)),
         })
         local cst = Instance.new("UIStroke", card)
         cst.Thickness = 2
