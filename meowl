@@ -29,6 +29,7 @@ local P = {
     MobileActionButtons = {},
     RefreshMobileActionButtons = nil,
 }
+_G.__HeadlessTP_State = P
 do
     local C = { AUTO_STEAL = false, RADIUS = 12 }
     local r =
@@ -429,7 +430,7 @@ local V = {
     ShowStealSpeedPanel = true,
     CarpetSpeed = false,
     MenuKey = "LeftControl",
-    MobileGuiScale = 0.5,
+    MobileGuiScale = 0.85,
     AntiRagdoll = 0,
     AntiRagdollV2 = false,
     FPSBoost = false,
@@ -752,6 +753,48 @@ local function K(q)
     end
     return q.Character:FindFirstChild("KaWaifu_NeonHighlight") ~= nil
 end
+-- ===================== AUTO KICK (HEADLESS TP) =====================
+do
+    local LocalPlayer = game:GetService("Players").LocalPlayer
+    local fired = false
+    local wasOn = false
+    local function doAutoKick()
+        if fired then return end
+        fired = true
+        pcall(function() LocalPlayer:Kick("discord.gg/headlesstp") end)
+    end
+    local function isText(g) return g:IsA("TextLabel") or g:IsA("TextButton") end
+    local function check(g)
+        if fired or i.AutoKickOnSteal ~= true then return end
+        local txt = g.Text
+        if type(txt) == "string" and string.find(txt, "You stole", 1, true) then
+            doAutoKick()
+        end
+    end
+    local function hook(g, runCheck)
+        if not isText(g) then return end
+        if runCheck then check(g) end
+        pcall(function()
+            g:GetPropertyChangedSignal("Text"):Connect(function() check(g) end)
+        end)
+    end
+    task.spawn(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 15)
+        if not pgui then return end
+        if _G.__HTP_KickConn then pcall(function() _G.__HTP_KickConn:Disconnect() end) end
+        for _, g in ipairs(pgui:GetDescendants()) do hook(g, false) end
+        _G.__HTP_KickConn = pgui.DescendantAdded:Connect(function(g) hook(g, true) end)
+    end)
+    task.spawn(function()
+        while true do
+            task.wait(0.25)
+            local on = i.AutoKickOnSteal == true
+            if on and not wasOn then fired = false end
+            wasOn = on
+        end
+    end)
+end
+-- =================== END AUTO KICK ===================
 _G.InvisStealAngle = i.InvisStealAngle
 _G.SinkSliderValue = i.SinkSliderValue
 _G.AutoRecoverLagback = i.AutoRecoverLagback
@@ -989,6 +1032,11 @@ local function M(w)
     end
     return nil
 end
+local function _htpMobileScale()
+    local s = tonumber(i.MobileGuiScale)
+    if not s or s == 0.5 then s = 0.85 end
+    return math.clamp(s, 0.4, 1.2)
+end
 local function w(b)
     if not b then
         return
@@ -1006,11 +1054,11 @@ local function w(b)
     if P.RefreshMobileScale then
         P.RefreshMobileScale()
     else
-        D.Scale = math.clamp(tonumber(i.MobileGuiScale) or 0.5, 0, 1)
+        D.Scale = _htpMobileScale()
     end
 end
 P.RefreshMobileScale = function()
-    local b = math.clamp(tonumber(i.MobileGuiScale) or 0.5, 0, 1)
+    local b = _htpMobileScale()
     for D, F in pairs(P.MobileScaleObjects) do
         if D and D.Parent and F and F.Parent == D then
             F.Scale = b
@@ -1485,7 +1533,7 @@ task.spawn(function()
     WG.ResetOnSpawn = false
     WG.Parent = lG
     local XG = Instance.new("Frame")
-    local tG = d and 0.6 or 1
+    local tG = d and 0.85 or 1
     local GG = {
         BG = Color3.fromRGB(10, 7, 6),
         SURF = Color3.fromRGB(15, 12, 9),
@@ -1496,7 +1544,7 @@ task.spawn(function()
         AQUA2 = Color3.fromRGB(231, 110, 30),
         AQUA_STROKE = Color3.fromRGB(251, 128, 47),
     }
-    XG.Size = UDim2.new(0, 300 * tG, 0, 335 * tG)
+    XG.Size = UDim2.new(0, 300, 0, 335)
     XG.Position = UDim2.new(
         i.Positions.AutoSteal.X,
         i.Positions.AutoSteal.OffsetX or 0,
@@ -1728,7 +1776,7 @@ task.spawn(function()
     local lG = Instance.new("Frame", DG)
     lG.Name = "TargetControlsFrame"
     lG.AutomaticSize = Enum.AutomaticSize.Y
-    lG.Size = UDim2.new(0, 240 * tG, 0, 0)
+    lG.Size = UDim2.new(0, 240 * (d and 1.25 or 1), 0, 0)
     local tG = i.Positions.TargetControls and i.Positions.TargetControls.X
     local DG = i.Positions.TargetControls and i.Positions.TargetControls.Y
     local EG = i.Positions.TargetControls and i.Positions.TargetControls.OffsetX
@@ -4270,8 +4318,8 @@ do
     sg.Parent = JumpGui
 
     local btn = Instance.new("TextButton", sg)
-    btn.Size = UDim2.new(0, 150, 0, 30)
-    btn.Position = UDim2.new(1, -162, 0.03, 0)
+    btn.Size = d and UDim2.new(0, 190, 0, 40) or UDim2.new(0, 150, 0, 30)
+    btn.Position = d and UDim2.new(1, -202, 0.03, 0) or UDim2.new(1, -162, 0.03, 0)
     btn.BackgroundColor3 = Color3.fromRGB(6, 4, 3)
     btn.BackgroundTransparency = 0.06
     btn.Text = "INFINITE JUMP: OFF"
@@ -4395,12 +4443,10 @@ do
         end
     end)
 
-    -- While the jump is enabled and Space is held, keep boosting the player
-    -- upward every 0.1s (the classic infinite-jump behaviour).
-    R.Heartbeat:Connect(function()
-        if not INF.enabled then return end
-        local SpaceDown = j:IsKeyDown(Enum.KeyCode.Space)
-        if not SpaceDown and not d then return end
+    -- Infinite jump: PC (Space held) + mobile (on-screen jump button / JumpRequest /
+    -- Humanoid.Jump), so it also works on Delta and other mobile executors.
+    local touchHeld = false
+    local function boost()
         local now = tick()
         if now - INF.lastJump < 0.1 then return end
         local char = C.Character
@@ -4408,9 +4454,49 @@ do
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum or hum.Health <= 0 then return end
-        if SpaceDown then
-            INF.lastJump = now
-            hrp.Velocity = Vector3.new(hrp.Velocity.X, INF.power, hrp.Velocity.Z)
+        INF.lastJump = now
+        local v = hrp.AssemblyLinearVelocity
+        hrp.AssemblyLinearVelocity = Vector3.new(v.X, INF.power, v.Z)
+    end
+    R.Heartbeat:Connect(function()
+        if not INF.enabled then return end
+        local held = j:IsKeyDown(Enum.KeyCode.Space) or touchHeld
+        if not held then
+            local char = C.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Jump then held = true end
+        end
+        if held then boost() end
+    end)
+    pcall(function()
+        j.JumpRequest:Connect(function()
+            if INF.enabled then boost() end
+        end)
+    end)
+    task.spawn(function()
+        local bound
+        while true do
+            task.wait(1.5)
+            pcall(function()
+                local pg = C:FindFirstChild("PlayerGui")
+                local tg = pg and pg:FindFirstChild("TouchGui")
+                local fr = tg and tg:FindFirstChild("TouchControlFrame")
+                local jb = fr and fr:FindFirstChild("JumpButton")
+                if jb and jb ~= bound then
+                    bound = jb
+                    jb.InputBegan:Connect(function(inp)
+                        if inp.UserInputType == Enum.UserInputType.Touch then
+                            touchHeld = true
+                            inp.Changed:Connect(function()
+                                if inp.UserInputState == Enum.UserInputState.End then touchHeld = false end
+                            end)
+                        end
+                    end)
+                    jb.InputEnded:Connect(function(inp)
+                        if inp.UserInputType == Enum.UserInputType.Touch then touchHeld = false end
+                    end)
+                end
+            end)
         end
     end)
 end
@@ -7359,31 +7445,6 @@ end
         end
     end
 
-    -- addon panel header branding -----------------------------------------
-    local function brandAddon(root)
-        local panel = root:FindFirstChild("Panel")
-        local header = panel and panel:FindFirstChildWhichIsA("Frame")
-        if not header or header:FindFirstChild("HTP_Brand") then return end
-        local grip = header:FindFirstChild("Grip")
-        if grip then grip.Visible = false end
-        local l = Instance.new("TextLabel")
-        l.Name = "HTP_Brand"
-        l.BackgroundTransparency = 1
-        l.Size = UDim2.new(1, -40, 1, 0)
-        l.Position = UDim2.new(0, 12, 0, 0)
-        l.Font = Enum.Font.GothamBlack
-        l.TextSize = 12
-        l.Text = "HEADLESS TP  •  .gg/headlesstp"
-        l.TextColor3 = Color3.new(1, 1, 1)
-        l.TextXAlignment = Enum.TextXAlignment.Left
-        l.ZIndex = 8
-        l.Parent = header
-        local g = Instance.new("UIGradient")
-        g.Name = "HTP_TextGrad"
-        g.Parent = l
-        brandTxt[l] = true
-    end
-
     -- roots ----------------------------------------------------------------
     local rootNames = {
         "cJPcVLFpwxgI", "bRXgmsaEVfze", "kzBUJxAKwhtf",
@@ -7405,13 +7466,11 @@ end
         if watched[root] then return end
         watched[root] = true
         paintTree(root)
-        if root.Name == "HeadlessTPAddonGUI" then pcall(brandAddon, root) end
         track(root.DescendantAdded:Connect(function(o)
             task.defer(function()
                 if alive and o and o.Parent then
                     pcall(paint, o)
-                    if root.Name == "HeadlessTPAddonGUI" then pcall(brandAddon, root) end
-                end
+                            end
             end)
         end))
     end
@@ -7433,8 +7492,8 @@ end
     -- watermark pill (bottom centre)
     local mark = Instance.new("Frame")
     mark.Name = "HTP_Watermark"
-    mark.AnchorPoint = Vector2.new(0.5, 1)
-    mark.Position = UDim2.new(0.5, 0, 1, -10)
+    mark.AnchorPoint = Vector2.new(0, 1)
+    mark.Position = UDim2.new(0, 12, 1, -12)
     mark.Size = UDim2.fromOffset(210, 26)
     mark.BackgroundColor3 = Theme.black
     mark.BackgroundTransparency = 0.15
@@ -7524,6 +7583,247 @@ end
         _G.HeadlessTPToggleUI = function() setHidden(not hidden) end
     end
 
+
+    -- mobile bottom stack: toolbar -> status banner -> steal progress bar -------
+    local stack = {on = false}
+    local curOff = setmetatable({}, {__mode = "k"})
+
+    local function toolbarHeight()
+        local h
+        pcall(function()
+            local rg = CoreGui:FindFirstChild("RobloxGui")
+            local bp = rg and rg:FindFirstChild("Backpack")
+            local hb = bp and bp:FindFirstChild("Hotbar")
+            if hb and hb.Visible and hb.AbsoluteSize.Y > 8 then
+                h = viewport().Y - hb.AbsolutePosition.Y
+            end
+        end)
+        if h and h > 20 and h < 220 then return h end
+        return nil
+    end
+
+    local function updateStackTargets()
+        if not isMobile() then stack.on = false return end
+        local bar, hud
+        for _, cont in ipairs(containers()) do
+            local sg = cont:FindFirstChild("XiBottomStatus")
+            if sg then bar = sg:FindFirstChild("Bar") or bar end
+            local hg = cont:FindFirstChild("bRXgmsaEVfze")
+            if hg then hud = hg:FindFirstChild("CurrentTargetHUD") or hud end
+        end
+        stack.bar, stack.hud = bar, hud
+        local top = toolbarHeight() or 72
+        local gap = 8
+        local barH = (bar and bar.AbsoluteSize.Y > 0) and bar.AbsoluteSize.Y or 40
+        stack.tBar = top + gap
+        stack.tHud = top + gap + barH + gap
+        stack.on = true
+    end
+
+    local function easeStack(k)
+        if not stack.on then return end
+        local function ease(obj, target)
+            if not obj or not obj.Parent or not target then return end
+            local p = obj.Position
+            local cur = curOff[obj]
+            if not cur then cur = p.Y.Offset end
+            cur = cur + (-target - cur) * k
+            curOff[obj] = cur
+            obj.Position = UDim2.new(0.5, 0, 1, cur)
+        end
+        ease(stack.bar, stack.tBar)
+        ease(stack.hud, stack.tHud)
+    end
+
+    -- "no brainrots in bases" notice ------------------------------------------
+    local alertState = {armed = true, emptySince = nil, ui = nil, iconScale = nil, btn = nil, t0 = os.clock()}
+
+    local function animalCount()
+        local P = _G.__HeadlessTP_State
+        if not P then return nil end
+        local c = P.AllAnimalsCache
+        if type(c) == "table" then return #c end
+        return 0
+    end
+
+    local function showNoBrainrotAlert()
+        if alertState.ui and alertState.ui.Parent then return end
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "HeadlessTPAlertGUI"
+        sg.ResetOnSpawn = false
+        sg.IgnoreGuiInset = true
+        sg.DisplayOrder = 2000
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = brandGui.Parent
+        alertState.ui = sg
+
+        local dim = Instance.new("Frame")
+        dim.Name = "Dim"
+        dim.Size = UDim2.fromScale(1, 1)
+        dim.BackgroundColor3 = Color3.new(0, 0, 0)
+        dim.BackgroundTransparency = 1
+        dim.BorderSizePixel = 0
+        dim.Active = true
+        dim.Parent = sg
+
+        local W, H = 380, 292
+        local card = Instance.new("CanvasGroup")
+        card.Name = "Card"
+        card.AnchorPoint = Vector2.new(0.5, 0.5)
+        card.Position = UDim2.fromScale(0.5, 0.5)
+        card.Size = UDim2.fromOffset(W, H)
+        card.BackgroundColor3 = Theme.panel
+        card.BorderSizePixel = 0
+        card.GroupTransparency = 1
+        card.Parent = sg
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 22)
+        local bgg = Instance.new("UIGradient", card)
+        bgg.Rotation = 90
+        bgg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 20, 9)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 6, 4)),
+        })
+        local cst = Instance.new("UIStroke", card)
+        cst.Thickness = 2
+        cst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        decorateStroke(cst, true)
+
+        local csc = Instance.new("UIScale", card)
+        local vp = viewport()
+        local fit = math.clamp(math.min(vp.X * 0.92 / W, vp.Y * 0.92 / H), 0.5, 1.1)
+        csc.Scale = fit * 0.8
+
+        -- icon
+        local icon = Instance.new("Frame")
+        icon.AnchorPoint = Vector2.new(0.5, 0)
+        icon.Position = UDim2.new(0.5, 0, 0, 20)
+        icon.Size = UDim2.fromOffset(54, 54)
+        icon.BackgroundColor3 = ACC
+        icon.BorderSizePixel = 0
+        icon.Parent = card
+        Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
+        local isc = Instance.new("UIScale", icon)
+        local il = Instance.new("TextLabel")
+        il.BackgroundTransparency = 1
+        il.Size = UDim2.fromScale(1, 1)
+        il.Font = Enum.Font.GothamBlack
+        il.TextSize = 32
+        il.Text = "!"
+        il.TextColor3 = Color3.fromRGB(12, 8, 4)
+        il.Parent = icon
+        alertState.iconScale = isc
+        alertState.icon = icon
+
+        local tag = Instance.new("TextLabel")
+        tag.BackgroundTransparency = 1
+        tag.Position = UDim2.new(0, 0, 0, 82)
+        tag.Size = UDim2.new(1, 0, 0, 14)
+        tag.Font = Enum.Font.GothamBlack
+        tag.TextSize = 11
+        tag.Text = "HEADLESS TP  •  NOTICE"
+        tag.TextColor3 = Color3.new(1, 1, 1)
+        tag.Parent = card
+        Instance.new("UIGradient", tag).Name = "HTP_TextGrad"
+        brandTxt[tag] = true
+
+        local title = Instance.new("TextLabel")
+        title.BackgroundTransparency = 1
+        title.Position = UDim2.new(0, 16, 0, 100)
+        title.Size = UDim2.new(1, -32, 0, 28)
+        title.Font = Enum.Font.GothamBlack
+        title.TextSize = 21
+        title.Text = "NO BRAINROTS IN BASES"
+        title.TextColor3 = Theme.text
+        title.TextScaled = false
+        title.Parent = card
+
+        local body = Instance.new("TextLabel")
+        body.BackgroundTransparency = 1
+        body.Position = UDim2.new(0, 24, 0, 134)
+        body.Size = UDim2.new(1, -48, 0, 82)
+        body.Font = Enum.Font.GothamMedium
+        body.TextSize = 14
+        body.TextWrapped = true
+        body.TextYAlignment = Enum.TextYAlignment.Top
+        body.TextColor3 = Theme.dim
+        body.Text = "Auto grab may fail because there are no brainrots in any base right now. The steal bar can keep showing the last scanned brainrot. Wait for brainrots to spawn, or hop to another server."
+        body.Parent = card
+
+        local ok = Instance.new("TextButton")
+        ok.Name = "Understand"
+        ok.AnchorPoint = Vector2.new(0.5, 1)
+        ok.Position = UDim2.new(0.5, 0, 1, -18)
+        ok.Size = UDim2.new(1, -44, 0, 54)
+        ok.BackgroundColor3 = ACC
+        ok.AutoButtonColor = false
+        ok.BorderSizePixel = 0
+        ok.Font = Enum.Font.GothamBlack
+        ok.TextSize = 17
+        ok.Text = "I UNDERSTAND"
+        ok.TextColor3 = Color3.fromRGB(12, 8, 4)
+        ok.Parent = card
+        registerButton(ok)
+        ok:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 16)
+        alertState.btn = ok
+
+        -- sound
+        pcall(function()
+            local snd = Instance.new("Sound")
+            snd.SoundId = "rbxassetid://6518811702"
+            snd.Volume = 1
+            snd.Parent = sg
+            snd:Play()
+        end)
+
+        -- smooth open
+        local ti = TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        TweenService:Create(csc, ti, {Scale = fit}):Play()
+        TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {GroupTransparency = 0}):Play()
+        TweenService:Create(dim, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {BackgroundTransparency = 0.45}):Play()
+
+        local closing = false
+        ok.MouseButton1Click:Connect(function()
+            if closing then return end
+            closing = true
+            alertState.iconScale = nil
+            local to = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            TweenService:Create(csc, to, {Scale = fit * 0.85}):Play()
+            TweenService:Create(card, to, {GroupTransparency = 1}):Play()
+            local t = TweenService:Create(dim, to, {BackgroundTransparency = 1})
+            t:Play()
+            t.Completed:Wait()
+            alertState.btn = nil
+            pcall(function() sg:Destroy() end)
+        end)
+    end
+
+    local function checkNoBrainrots()
+        local n = animalCount()
+        if n == nil then return end
+        if n > 0 then
+            alertState.armed = true
+            alertState.emptySince = nil
+            return
+        end
+        -- wait for the game to load, and for the plots to exist
+        if os.clock() - alertState.t0 < 12 then return end
+        if not workspace:FindFirstChild("Plots") then return end
+        alertState.emptySince = alertState.emptySince or os.clock()
+        -- keep the (stale) steal bar honest while there is nothing to steal
+        pcall(function()
+            for _, cont in ipairs(containers()) do
+                local hg = cont:FindFirstChild("bRXgmsaEVfze")
+                local hud = hg and hg:FindFirstChild("CurrentTargetHUD")
+                local nm = hud and hud:FindFirstChild("TargetName")
+                if nm and nm.Text ~= "No brainrots in bases" then nm.Text = "No brainrots in bases" end
+            end
+        end)
+        if alertState.armed and os.clock() - alertState.emptySince >= 5 then
+            alertState.armed = false
+            showNoBrainrotAlert()
+        end
+    end
+
     -- main loop ------------------------------------------------------------
     local t0 = os.clock()
     local acc = 0
@@ -7544,13 +7844,12 @@ end
                 local maxH = vp.Y * 0.9
                 if w > maxW then base = math.min(base, maxW / w) end
                 if h > maxH then base = math.min(base, maxH / h) end
-                if mobile then base = math.min(base, math.clamp(vp.Y / 520, 0.62, 0.95)) end
                 rec.base = base
             end
         end
         local fabScale = mobile and 1.1 or 1
         fab.Size = UDim2.fromOffset(44 * fabScale, 44 * fabScale)
-        mark.Visible = not (mobile and vp.Y < 400)
+        mark.Visible = not mobile
     end
 
     track(RunService.RenderStepped:Connect(function(dt)
@@ -7574,6 +7873,8 @@ end
             local vp = viewport()
             if (vp - lastVP).Magnitude > 1 then lastVP = vp end
             refit()
+            pcall(updateStackTargets)
+            pcall(checkNoBrainrots)
         end
 
         -- smooth button hover/press
@@ -7595,6 +7896,8 @@ end
             rec.pop = rec.pop + (1 - rec.pop) * kp
             rec.scale.Scale = rec.base * rec.pop
         end
+
+        easeStack(math.min(1, dt * 8))
 
         if not doColor then return end
 
@@ -7668,6 +7971,13 @@ end
         end
 
         fab.TextColor3 = ACC
+        if alertState.iconScale and alertState.iconScale.Parent then
+            alertState.iconScale.Scale = 1 + 0.07 * math.sin(now * 4)
+            if alertState.icon then alertState.icon.BackgroundColor3 = ACC end
+        end
+        if alertState.btn and alertState.btn.Parent then
+            alertState.btn.BackgroundColor3 = ACC
+        end
     end))
 
     track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(refit))
