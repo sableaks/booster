@@ -35,40 +35,79 @@ screen.DisplayOrder = 9999999
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = targetParent
 
-local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 300, 1, -40)
-container.Position = UDim2.new(1, -320, 0, 20)
-container.BackgroundTransparency = 1
-container.Parent = screen
-
-local layout = Instance.new("UIListLayout")
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Padding = UDim.new(0, 10)
-layout.Parent = container
-
 -- ==========================================
--- PERSISTENT STATUS HEADER
+-- COMPACT TOP BAR
 -- ==========================================
-local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 40)
-header.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-header.LayoutOrder = -2
-header.Parent = container
-local headerCorner = Instance.new("UICorner")
-headerCorner.CornerRadius = UDim.new(0, 8)
-headerCorner.Parent = header
-local headerStroke = Instance.new("UIStroke")
-headerStroke.Color = Color3.fromRGB(150, 150, 150)
-headerStroke.Thickness = 1
-headerStroke.Parent = header
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, 0, 1, 0)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "📡 Auto-Buy: Listening (0 Active)"
-statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-statusLabel.Font = Enum.Font.GothamBold
-statusLabel.TextSize = 14
-statusLabel.Parent = header
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(1, -112, 0, 26)
+bar.Position = UDim2.new(0, 104, 0, 4)
+bar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+bar.BackgroundTransparency = 0.15
+bar.BorderSizePixel = 0
+bar.Parent = screen
+local barCorner = Instance.new("UICorner")
+barCorner.CornerRadius = UDim.new(0, 6)
+barCorner.Parent = bar
+local barPadding = Instance.new("UIPadding")
+barPadding.PaddingLeft = UDim.new(0, 4)
+barPadding.PaddingRight = UDim.new(0, 4)
+barPadding.Parent = bar
+local barLayout = Instance.new("UIListLayout")
+barLayout.FillDirection = Enum.FillDirection.Horizontal
+barLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+barLayout.SortOrder = Enum.SortOrder.LayoutOrder
+barLayout.Padding = UDim.new(0, 4)
+barLayout.Parent = bar
+
+local function makeBarLabel(width, order, color)
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0, width, 1, 0)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = color
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 11
+	label.TextTruncate = Enum.TextTruncate.AtEnd
+	label.Text = ""
+	label.LayoutOrder = order
+	label.Parent = bar
+	return label
+end
+
+local function makeBarButton(width, order, text)
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(0, width, 0, 20)
+	button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	button.TextColor3 = Color3.fromRGB(255, 255, 255)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 11
+	button.Text = text
+	button.LayoutOrder = order
+	button.Parent = bar
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 4)
+	corner.Parent = button
+	return button
+end
+
+local statusLabel = makeBarLabel(80, 1, Color3.fromRGB(255, 255, 255))
+statusLabel.Text = "📡 0 | 🐉 0"
+
+local tradeList = Instance.new("ScrollingFrame")
+tradeList.Size = UDim2.new(1, -226, 1, 0) -- Takes whatever space is left
+tradeList.BackgroundTransparency = 1
+tradeList.BorderSizePixel = 0
+tradeList.ScrollBarThickness = 0
+tradeList.ScrollingDirection = Enum.ScrollingDirection.X
+tradeList.AutomaticCanvasSize = Enum.AutomaticSize.X
+tradeList.CanvasSize = UDim2.new(0, 0, 0, 0)
+tradeList.LayoutOrder = 2
+tradeList.Parent = bar
+local tradeListLayout = Instance.new("UIListLayout")
+tradeListLayout.FillDirection = Enum.FillDirection.Horizontal
+tradeListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+tradeListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tradeListLayout.Padding = UDim.new(0, 8)
+tradeListLayout.Parent = tradeList
 
 local activeTradeFrames = {}
 local expectedUsers = {} -- [lower_roblox_username] = tradeId
@@ -90,82 +129,17 @@ local function sendDiscordUpdate(tradeId, msg, isComplete, dragonsReceived, tota
 	end)
 end
 
-local function loadDiscordAvatar(url, tradeId)
-	if not url or url == "" then return "" end
-	local fileName = "discord_pfp_" .. tradeId .. ".png"
-	local success, response = pcall(function()
-		return req({Url = url, Method = "GET"})
-	end)
-	if success and response.StatusCode == 200 then
-		pcall(function() writefile(fileName, response.Body) end)
-		local assetSuccess, asset = pcall(function() return getcustomasset(fileName) end)
-		if assetSuccess then return asset end
-	end
-	return ""
-end
-
 local function createTradeCard(tradeData)
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.new(1, 0, 0, 100)
-	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-	frame.BorderSizePixel = 0
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = frame
-	local uiStroke = Instance.new("UIStroke")
-	uiStroke.Color = Color3.fromRGB(80, 200, 120)
-	uiStroke.Thickness = 2
-	uiStroke.Parent = frame
-	
-	local avatar = Instance.new("ImageLabel")
-	avatar.Size = UDim2.new(0, 70, 0, 70)
-	avatar.Position = UDim2.new(0, 15, 0, 15)
-	avatar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-	avatar.Parent = frame
-	local avCorner = Instance.new("UICorner")
-	avCorner.CornerRadius = UDim.new(1, 0)
-	avCorner.Parent = avatar
-
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, -100, 0, 25)
-	titleLabel.Position = UDim2.new(0, 100, 0, 10)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "Waiting on: " .. tradeData.robloxUsername
-	titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextSize = 16
-	titleLabel.Parent = frame
-
-	local discordLabel = Instance.new("TextLabel")
-	discordLabel.Size = UDim2.new(1, -100, 0, 20)
-	discordLabel.Position = UDim2.new(0, 100, 0, 35)
-	discordLabel.BackgroundTransparency = 1
-	discordLabel.Text = tradeData.discordDisplayName .. " (@" .. tradeData.discordUsername .. ")"
-	discordLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-	discordLabel.TextXAlignment = Enum.TextXAlignment.Left
-	discordLabel.Font = Enum.Font.Gotham
-	discordLabel.TextSize = 13
-	discordLabel.Parent = frame
-
-	local timerLabel = Instance.new("TextLabel")
-	timerLabel.Size = UDim2.new(1, -100, 0, 20)
-	timerLabel.Position = UDim2.new(0, 100, 0, 65)
-	timerLabel.BackgroundTransparency = 1
-	timerLabel.Text = "Connecting..."
-	timerLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
-	timerLabel.Font = Enum.Font.GothamBold
-	timerLabel.TextSize = 14
-	timerLabel.Parent = frame
-	frame.Parent = container
-	
-	task.spawn(function()
-		local assetPath = loadDiscordAvatar(tradeData.avatarUrl, tradeData.tradeId)
-		if assetPath ~= "" then avatar.Image = assetPath end
-	end)
-
-	return frame, timerLabel
+	local label = Instance.new("TextLabel")
+	label.AutomaticSize = Enum.AutomaticSize.X
+	label.Size = UDim2.new(0, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = tradeData.robloxUsername
+	label.TextColor3 = Color3.fromRGB(120, 220, 150)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 11
+	label.Parent = tradeList
+	return label, label
 end
 
 -- ==========================================
@@ -188,7 +162,7 @@ task.spawn(function()
 					activeCount = activeCount + 1
 					if not activeTradeFrames[trade.tradeId] then
 						local frame, timerLabel = createTradeCard(trade)
-						activeTradeFrames[trade.tradeId] = {frame = frame, timerLabel = timerLabel, expiresAt = trade.expiresAt}
+						activeTradeFrames[trade.tradeId] = {frame = frame, timerLabel = timerLabel, expiresAt = trade.expiresAt, username = trade.robloxUsername}
 					end
 				end
 				for id, uiData in pairs(activeTradeFrames) do
@@ -197,7 +171,7 @@ task.spawn(function()
 						activeTradeFrames[id] = nil
 					end
 				end
-				statusLabel.Text = "📡 Listening (" .. tostring(activeCount) .. " Active) | 🐉 " .. tostring(totalDragons)
+				statusLabel.Text = "📡 " .. tostring(activeCount) .. " | 🐉 " .. tostring(totalDragons)
 			end
 		end
 	end
@@ -208,8 +182,8 @@ RunService.RenderStepped:Connect(function()
 	local now = os.time()
 	for _, uiData in pairs(activeTradeFrames) do
 		local remaining = uiData.expiresAt - now
-		if remaining > 0 then uiData.timerLabel.Text = "Time Left: " .. tostring(remaining) .. "s"
-		else uiData.timerLabel.Text = "Time Expired" end
+		if remaining > 0 then uiData.timerLabel.Text = uiData.username .. " " .. tostring(remaining) .. "s"
+		else uiData.timerLabel.Text = uiData.username .. " expired" end
 	end
 end)
 
@@ -275,70 +249,14 @@ local nextHopAt = os.clock() + GROOVY_INTERVAL
 local isHopping = false
 local hasQueued = false
 
-local groovySection = Instance.new("Frame")
-groovySection.Size = UDim2.new(1, 0, 0, 112)
-groovySection.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-groovySection.LayoutOrder = -1
-groovySection.Parent = container
-local groovyCorner = Instance.new("UICorner")
-groovyCorner.CornerRadius = UDim.new(0, 8)
-groovyCorner.Parent = groovySection
-local groovyStroke = Instance.new("UIStroke")
-groovyStroke.Color = Color3.fromRGB(150, 150, 150)
-groovyStroke.Thickness = 1
-groovyStroke.Parent = groovySection
-
-local groovyTitle = Instance.new("TextLabel")
-groovyTitle.Size = UDim2.new(1, -100, 0, 36)
-groovyTitle.Position = UDim2.new(0, 12, 0, 4)
-groovyTitle.BackgroundTransparency = 1
-groovyTitle.Text = "Groovy"
-groovyTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-groovyTitle.TextXAlignment = Enum.TextXAlignment.Left
-groovyTitle.Font = Enum.Font.GothamBold
-groovyTitle.TextSize = 15
-groovyTitle.Parent = groovySection
-
-local groovyToggle = Instance.new("TextButton")
-groovyToggle.Size = UDim2.new(0, 70, 0, 26)
-groovyToggle.Position = UDim2.new(1, -82, 0, 9)
-groovyToggle.Font = Enum.Font.GothamBold
-groovyToggle.TextSize = 13
-groovyToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-groovyToggle.Parent = groovySection
-local groovyToggleCorner = Instance.new("UICorner")
-groovyToggleCorner.CornerRadius = UDim.new(0, 6)
-groovyToggleCorner.Parent = groovyToggle
-
-local groovyStatus = Instance.new("TextLabel")
-groovyStatus.Size = UDim2.new(1, -24, 0, 20)
-groovyStatus.Position = UDim2.new(0, 12, 0, 40)
-groovyStatus.BackgroundTransparency = 1
-groovyStatus.Text = ""
-groovyStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
-groovyStatus.TextXAlignment = Enum.TextXAlignment.Left
-groovyStatus.Font = Enum.Font.Gotham
-groovyStatus.TextSize = 13
-groovyStatus.TextTruncate = Enum.TextTruncate.AtEnd
-groovyStatus.Parent = groovySection
-
-local skipButton = Instance.new("TextButton")
-skipButton.Size = UDim2.new(1, -24, 0, 34)
-skipButton.Position = UDim2.new(0, 12, 0, 66)
-skipButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-skipButton.Text = "Skip"
-skipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-skipButton.Font = Enum.Font.GothamBold
-skipButton.TextSize = 14
-skipButton.Parent = groovySection
-local skipCorner = Instance.new("UICorner")
-skipCorner.CornerRadius = UDim.new(0, 6)
-skipCorner.Parent = skipButton
+local groovyStatus = makeBarLabel(46, 3, Color3.fromRGB(180, 180, 180))
+local groovyToggle = makeBarButton(36, 4, "OFF")
+local skipButton = makeBarButton(40, 5, "Skip")
 
 local function refreshGroovyToggle()
 	groovyToggle.Text = groovyEnabled and "ON" or "OFF"
 	groovyToggle.BackgroundColor3 = groovyEnabled and Color3.fromRGB(60, 160, 90) or Color3.fromRGB(90, 90, 100)
-	if not groovyEnabled then groovyStatus.Text = "Disabled" end
+	if not groovyEnabled then groovyStatus.Text = "Off" end
 end
 
 local function queueScriptForTeleport()
@@ -422,7 +340,7 @@ end
 local function hopToGroovyServer()
 	if isHopping then return end
 	isHopping = true
-	groovyStatus.Text = "Joining private server..."
+	groovyStatus.Text = "Joining"
 	queueScriptForTeleport()
 
 	local ok, err = pcall(function()
@@ -431,7 +349,7 @@ local function hopToGroovyServer()
 	if not ok then
 		warn("[Groovy] Join failed: " .. tostring(err))
 		warn("[Groovy] Get the access code from: https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/private-servers?limit=100")
-		groovyStatus.Text = "Join failed, check console (F9)"
+		groovyStatus.Text = "Failed"
 	end
 
 	nextHopAt = os.clock() + GROOVY_INTERVAL
@@ -447,6 +365,11 @@ groovyToggle.MouseButton1Click:Connect(function()
 end)
 
 skipButton.MouseButton1Click:Connect(function()
+	-- Auto-clicks can land on this button, so ignore it during those stages
+	if tradeState == "ACCEPTING_PROMPT" or tradeState == "ACCEPTING" then
+		warn("[Groovy] Skip ignored during auto-clicking")
+		return
+	end
 	task.spawn(hopToGroovyServer)
 end)
 
@@ -457,9 +380,9 @@ task.spawn(function()
 		if groovyEnabled and not isHopping then
 			local remaining = math.ceil(nextHopAt - os.clock())
 			if remaining > 0 then
-				groovyStatus.Text = string.format("Next join in %d:%02d", math.floor(remaining / 60), remaining % 60)
+				groovyStatus.Text = string.format("%d:%02d", math.floor(remaining / 60), remaining % 60)
 			elseif tradeState ~= "IDLE" then
-				groovyStatus.Text = "Waiting for trade to finish..."
+				groovyStatus.Text = "In trade"
 			else
 				hopToGroovyServer()
 			end
