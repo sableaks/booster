@@ -1,0 +1,720 @@
+local SOURCE = [==[
+local SOURCE = ...
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- ==========================================
+-- AUTO-DELIVERY TRADE HANDLER & UI (FINAL)
+-- ==========================================
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
+
+local req = (syn and syn.request) or request or http_request or (http and http.request)
+if not req then error("Your executor does not support HTTP requests.") end
+
+-- Safest UI Parenting Chain
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+local targetParent = (typeof(gethui) == "function" and gethui()) or CoreGui
+if not pcall(function() local x = Instance.new("ScreenGui", targetParent) x:Destroy() end) then
+	targetParent = playerGui
+end
+
+local API_URL = "http://15.235.11.50:9034"
+local GUI_NAME = "AutoBuyListenerUI_FINAL"
+
+if targetParent:FindFirstChild(GUI_NAME) then targetParent[GUI_NAME]:Destroy() end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = GUI_NAME
+screen.ResetOnSpawn = false
+screen.IgnoreGuiInset = true
+screen.DisplayOrder = 9999999
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screen.Parent = targetParent
+
+local container = Instance.new("Frame")
+container.Size = UDim2.new(0, 300, 1, -40)
+container.Position = UDim2.new(1, -320, 0, 20)
+container.BackgroundTransparency = 1
+container.Parent = screen
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 10)
+layout.Parent = container
+
+-- ==========================================
+-- PERSISTENT STATUS HEADER
+-- ==========================================
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 40)
+header.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+header.LayoutOrder = -2
+header.Parent = container
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 8)
+headerCorner.Parent = header
+local headerStroke = Instance.new("UIStroke")
+headerStroke.Color = Color3.fromRGB(150, 150, 150)
+headerStroke.Thickness = 1
+headerStroke.Parent = header
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, 0, 1, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "📡 Auto-Buy: Listening (0 Active)"
+statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextSize = 14
+statusLabel.Parent = header
+
+local activeTradeFrames = {}
+local expectedUsers = {} -- [lower_roblox_username] = tradeId
+
+local function sendDiscordUpdate(tradeId, msg, isComplete, dragonsReceived, totalDragons)
+	pcall(function()
+		req({
+			Url = API_URL .. "/api/trade-update",
+			Method = "POST",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = HttpService:JSONEncode({
+				tradeId = tradeId,
+				message = msg,
+				isComplete = isComplete == true,
+				dragonsReceived = dragonsReceived,
+				totalDragons = totalDragons
+			})
+		})
+	end)
+end
+
+local function loadDiscordAvatar(url, tradeId)
+	if not url or url == "" then return "" end
+	local fileName = "discord_pfp_" .. tradeId .. ".png"
+	local success, response = pcall(function()
+		return req({Url = url, Method = "GET"})
+	end)
+	if success and response.StatusCode == 200 then
+		pcall(function() writefile(fileName, response.Body) end)
+		local assetSuccess, asset = pcall(function() return getcustomasset(fileName) end)
+		if assetSuccess then return asset end
+	end
+	return ""
+end
+
+local function createTradeCard(tradeData)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 0, 100)
+	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+	frame.BorderSizePixel = 0
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+	local uiStroke = Instance.new("UIStroke")
+	uiStroke.Color = Color3.fromRGB(80, 200, 120)
+	uiStroke.Thickness = 2
+	uiStroke.Parent = frame
+	
+	local avatar = Instance.new("ImageLabel")
+	avatar.Size = UDim2.new(0, 70, 0, 70)
+	avatar.Position = UDim2.new(0, 15, 0, 15)
+	avatar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	avatar.Parent = frame
+	local avCorner = Instance.new("UICorner")
+	avCorner.CornerRadius = UDim.new(1, 0)
+	avCorner.Parent = avatar
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -100, 0, 25)
+	titleLabel.Position = UDim2.new(0, 100, 0, 10)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "Waiting on: " .. tradeData.robloxUsername
+	titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.TextSize = 16
+	titleLabel.Parent = frame
+
+	local discordLabel = Instance.new("TextLabel")
+	discordLabel.Size = UDim2.new(1, -100, 0, 20)
+	discordLabel.Position = UDim2.new(0, 100, 0, 35)
+	discordLabel.BackgroundTransparency = 1
+	discordLabel.Text = tradeData.discordDisplayName .. " (@" .. tradeData.discordUsername .. ")"
+	discordLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+	discordLabel.TextXAlignment = Enum.TextXAlignment.Left
+	discordLabel.Font = Enum.Font.Gotham
+	discordLabel.TextSize = 13
+	discordLabel.Parent = frame
+
+	local timerLabel = Instance.new("TextLabel")
+	timerLabel.Size = UDim2.new(1, -100, 0, 20)
+	timerLabel.Position = UDim2.new(0, 100, 0, 65)
+	timerLabel.BackgroundTransparency = 1
+	timerLabel.Text = "Connecting..."
+	timerLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
+	timerLabel.Font = Enum.Font.GothamBold
+	timerLabel.TextSize = 14
+	timerLabel.Parent = frame
+	frame.Parent = container
+	
+	task.spawn(function()
+		local assetPath = loadDiscordAvatar(tradeData.avatarUrl, tradeData.tradeId)
+		if assetPath ~= "" then avatar.Image = assetPath end
+	end)
+
+	return frame, timerLabel
+end
+
+-- ==========================================
+-- THE POLLING LOOP
+-- ==========================================
+task.spawn(function()
+	while task.wait(2.5) do
+		local success, response = pcall(function()
+			return req({Url = API_URL .. "/api/pending-trades", Method = "GET"})
+		end)
+		if success and response.StatusCode == 200 then
+			local dataOk, json = pcall(function() return HttpService:JSONDecode(response.Body) end)
+			if dataOk and json and json.trades then
+				local currentApiTrades = {}
+				expectedUsers = {}
+				local activeCount = 0
+				for _, trade in ipairs(json.trades) do
+					currentApiTrades[trade.tradeId] = true
+					expectedUsers[string.lower(trade.robloxUsername)] = trade.tradeId
+					activeCount = activeCount + 1
+					if not activeTradeFrames[trade.tradeId] then
+						local frame, timerLabel = createTradeCard(trade)
+						activeTradeFrames[trade.tradeId] = {frame = frame, timerLabel = timerLabel, expiresAt = trade.expiresAt}
+					end
+				end
+				for id, uiData in pairs(activeTradeFrames) do
+					if not currentApiTrades[id] then
+						uiData.frame:Destroy()
+						activeTradeFrames[id] = nil
+					end
+				end
+				statusLabel.Text = "📡 Listening (" .. tostring(activeCount) .. " Active) | 🐉 " .. tostring(totalDragons)
+			end
+		end
+	end
+end)
+
+-- UI Timer Update
+RunService.RenderStepped:Connect(function()
+	local now = os.time()
+	for _, uiData in pairs(activeTradeFrames) do
+		local remaining = uiData.expiresAt - now
+		if remaining > 0 then uiData.timerLabel.Text = "Time Left: " .. tostring(remaining) .. "s"
+		else uiData.timerLabel.Text = "Time Expired" end
+	end
+end)
+
+-- ==========================================
+-- TRADE AUTOMATION LOGIC
+-- ==========================================
+local tradeState = "IDLE"
+local activeTradeId = nil
+local activeTradeUser = nil
+local tradeVerifiedAt = 0
+local completedTrades = {} -- [tradeId] = true
+
+local DRAGON_FILE = "dragons_received.txt"
+local totalDragons = 0
+pcall(function()
+	if isfile(DRAGON_FILE) then totalDragons = tonumber(readfile(DRAGON_FILE)) or 0 end
+end)
+local dragonsInTrade = 0
+local isSpamClicking = false
+
+local function countDragonCannelloni(otherFrame)
+	local sf = otherFrame:FindFirstChild("ScrollingFrame")
+	if not sf then return 0 end
+	local count = 0
+	local dragons = 0
+	for _, child in ipairs(sf:GetChildren()) do
+		-- Dynamically skip the first instance named Template, check the rest
+		if child:IsA("Frame") and child.Name == "Template" then
+			count = count + 1
+			if count > 1 then
+				local spacer = child:FindFirstChild("Spacer")
+				if spacer then
+					local title = spacer:FindFirstChild("Title")
+					if title and title.Text == "Dragon Cannelloni" then
+						dragons = dragons + 1
+					end
+				end
+			end
+		end
+	end
+	return dragons
+end
+
+-- ==========================================
+-- GROOVY (PRIVATE SERVER REJOIN)
+-- ==========================================
+local SHARE_CODE = "1a22de6ed0951743a08c0a4504c083fe"
+local ACCESS_CODE = "078f17ff-a04b-40b3-9f15-8f7dbd1cea0a" -- Paste the server's access code here if the automatic lookup fails
+local GROOVY_INTERVAL = 6.7 * 60 -- 402 seconds
+local GROOVY_FILE = "groovy_enabled.txt"
+local TeleportService = game:GetService("TeleportService")
+
+local groovyEnv = (getgenv and getgenv()) or _G
+local groovyRunId = HttpService:GenerateGUID(false)
+groovyEnv.GroovyRunId = groovyRunId
+
+local groovyEnabled = false
+pcall(function()
+	groovyEnabled = isfile(GROOVY_FILE) and readfile(GROOVY_FILE) == "true"
+end)
+
+local nextHopAt = os.clock() + GROOVY_INTERVAL
+local isHopping = false
+local hasQueued = false
+
+local groovySection = Instance.new("Frame")
+groovySection.Size = UDim2.new(1, 0, 0, 112)
+groovySection.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+groovySection.LayoutOrder = -1
+groovySection.Parent = container
+local groovyCorner = Instance.new("UICorner")
+groovyCorner.CornerRadius = UDim.new(0, 8)
+groovyCorner.Parent = groovySection
+local groovyStroke = Instance.new("UIStroke")
+groovyStroke.Color = Color3.fromRGB(150, 150, 150)
+groovyStroke.Thickness = 1
+groovyStroke.Parent = groovySection
+
+local groovyTitle = Instance.new("TextLabel")
+groovyTitle.Size = UDim2.new(1, -100, 0, 36)
+groovyTitle.Position = UDim2.new(0, 12, 0, 4)
+groovyTitle.BackgroundTransparency = 1
+groovyTitle.Text = "Groovy"
+groovyTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+groovyTitle.TextXAlignment = Enum.TextXAlignment.Left
+groovyTitle.Font = Enum.Font.GothamBold
+groovyTitle.TextSize = 15
+groovyTitle.Parent = groovySection
+
+local groovyToggle = Instance.new("TextButton")
+groovyToggle.Size = UDim2.new(0, 70, 0, 26)
+groovyToggle.Position = UDim2.new(1, -82, 0, 9)
+groovyToggle.Font = Enum.Font.GothamBold
+groovyToggle.TextSize = 13
+groovyToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+groovyToggle.Parent = groovySection
+local groovyToggleCorner = Instance.new("UICorner")
+groovyToggleCorner.CornerRadius = UDim.new(0, 6)
+groovyToggleCorner.Parent = groovyToggle
+
+local groovyStatus = Instance.new("TextLabel")
+groovyStatus.Size = UDim2.new(1, -24, 0, 20)
+groovyStatus.Position = UDim2.new(0, 12, 0, 40)
+groovyStatus.BackgroundTransparency = 1
+groovyStatus.Text = ""
+groovyStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
+groovyStatus.TextXAlignment = Enum.TextXAlignment.Left
+groovyStatus.Font = Enum.Font.Gotham
+groovyStatus.TextSize = 13
+groovyStatus.TextTruncate = Enum.TextTruncate.AtEnd
+groovyStatus.Parent = groovySection
+
+local skipButton = Instance.new("TextButton")
+skipButton.Size = UDim2.new(1, -24, 0, 34)
+skipButton.Position = UDim2.new(0, 12, 0, 66)
+skipButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+skipButton.Text = "Skip"
+skipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+skipButton.Font = Enum.Font.GothamBold
+skipButton.TextSize = 14
+skipButton.Parent = groovySection
+local skipCorner = Instance.new("UICorner")
+skipCorner.CornerRadius = UDim.new(0, 6)
+skipCorner.Parent = skipButton
+
+local function refreshGroovyToggle()
+	groovyToggle.Text = groovyEnabled and "ON" or "OFF"
+	groovyToggle.BackgroundColor3 = groovyEnabled and Color3.fromRGB(60, 160, 90) or Color3.fromRGB(90, 90, 100)
+	if not groovyEnabled then groovyStatus.Text = "Disabled" end
+end
+
+local function queueScriptForTeleport()
+	if hasQueued then return true end
+	local queue = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport)
+	if not queue then
+		warn("[Groovy] Executor does not support queue_on_teleport!")
+		return false
+	end
+	queue("local SOURCE = [==[\n" .. SOURCE .. "]=" .. "=]\nloadstring(SOURCE)(SOURCE)")
+	hasQueued = true
+	return true
+end
+
+local function robloxRequest(options)
+	local response = req(options)
+	if response.StatusCode == 403 and response.Headers then
+		local token = response.Headers["x-csrf-token"] or response.Headers["X-CSRF-TOKEN"] or response.Headers["X-Csrf-Token"]
+		if token then
+			options.Headers = options.Headers or {}
+			options.Headers["x-csrf-token"] = token
+			response = req(options)
+		end
+	end
+	return response
+end
+
+local function getAccessCode()
+	if ACCESS_CODE ~= "" then return game.PlaceId, ACCESS_CODE end
+
+	local resolved = robloxRequest({
+		Url = "https://apis.roblox.com/sharelinks/v1/resolve-link",
+		Method = "POST",
+		Headers = {["Content-Type"] = "application/json"},
+		Body = HttpService:JSONEncode({linkId = SHARE_CODE, linkType = "Server"})
+	})
+	print("[Groovy] Resolve status: " .. tostring(resolved.StatusCode) .. " | " .. string.sub(tostring(resolved.Body), 1, 300))
+
+	local ok, data = pcall(function() return HttpService:JSONDecode(resolved.Body) end)
+	local invite = ok and data and data.privateServerInviteData
+	if not invite then error("Roblox did not return the private server details") end
+
+	local page = req({
+		Url = "https://www.roblox.com/games/" .. tostring(invite.placeId) .. "?privateServerLinkCode=" .. tostring(invite.linkCode),
+		Method = "GET"
+	})
+	local accessCode = string.match(tostring(page.Body), "joinPrivateGame%(%d+,%s*'([%w%-]+)'")
+	if not accessCode then error("Could not find the access code") end
+	return invite.placeId, accessCode
+end
+
+local function joinWithAccessCode(placeId, accessCode)
+	local direct, directErr = pcall(function()
+		TeleportService:TeleportToPrivateServer(placeId, accessCode, {localPlayer})
+	end)
+	if direct then return end
+	warn("[Groovy] TeleportToPrivateServer failed: " .. tostring(directErr))
+
+	local robloxStorage = game:GetService("RobloxReplicatedStorage")
+	local remote = robloxStorage:FindFirstChild("ContactListIrisInviteTeleport", true)
+		or robloxStorage:WaitForChild("ContactListIrisInviteTeleport", 3)
+	if remote then
+		print("[Groovy] Using remote: " .. remote:GetFullName())
+		remote:FireServer(placeId, "", accessCode)
+		return
+	end
+
+	-- Log anything that looks like a teleport remote
+	for _, item in ipairs(robloxStorage:GetDescendants()) do
+		local name = string.lower(item.Name)
+		if string.find(name, "teleport", 1, true) or string.find(name, "invite", 1, true) or string.find(name, "contact", 1, true) then
+			print("[Groovy] Found: " .. item:GetFullName() .. " (" .. item.ClassName .. ")")
+		end
+	end
+
+	print("[Groovy] Trying ExperienceService")
+	game:GetService("ExperienceService"):LaunchExperience({placeId = placeId, accessCode = accessCode})
+	print("[Groovy] ExperienceService call returned")
+end
+
+local function hopToGroovyServer()
+	if isHopping then return end
+	isHopping = true
+	groovyStatus.Text = "Joining private server..."
+	queueScriptForTeleport()
+
+	local ok, err = pcall(function()
+		joinWithAccessCode(getAccessCode())
+	end)
+	if not ok then
+		warn("[Groovy] Join failed: " .. tostring(err))
+		warn("[Groovy] Get the access code from: https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/private-servers?limit=100")
+		groovyStatus.Text = "Join failed, check console (F9)"
+	end
+
+	nextHopAt = os.clock() + GROOVY_INTERVAL
+	task.wait(10) -- Gives the teleport time to happen before allowing another
+	isHopping = false
+end
+
+groovyToggle.MouseButton1Click:Connect(function()
+	groovyEnabled = not groovyEnabled
+	nextHopAt = os.clock() + GROOVY_INTERVAL
+	pcall(function() writefile(GROOVY_FILE, tostring(groovyEnabled)) end)
+	refreshGroovyToggle()
+end)
+
+skipButton.MouseButton1Click:Connect(function()
+	task.spawn(hopToGroovyServer)
+end)
+
+refreshGroovyToggle()
+
+task.spawn(function()
+	while groovyEnv.GroovyRunId == groovyRunId and task.wait(1) do
+		if groovyEnabled and not isHopping then
+			local remaining = math.ceil(nextHopAt - os.clock())
+			if remaining > 0 then
+				groovyStatus.Text = string.format("Next join in %d:%02d", math.floor(remaining / 60), remaining % 60)
+			elseif tradeState ~= "IDLE" then
+				groovyStatus.Text = "Waiting for trade to finish..."
+			else
+				hopToGroovyServer()
+			end
+		end
+	end
+end)
+
+-- ==========================================
+-- PROMPT CLICK HELPERS
+-- ==========================================
+local function getRealButton(yes)
+	if yes:IsA("GuiButton") then return yes end
+	return yes:FindFirstChildWhichIsA("GuiButton", true)
+end
+
+local function clickButton(btn, attempt)
+	if attempt % 2 == 1 then
+		-- Fire the button's signals directly
+		for _, signal in ipairs({btn.MouseButton1Down, btn.MouseButton1Click, btn.MouseButton1Up, btn.Activated}) do
+			if firesignal then
+				pcall(firesignal, signal)
+			elseif getconnections then
+				pcall(function()
+					for _, conn in ipairs(getconnections(signal)) do
+						conn:Fire()
+					end
+				end)
+			end
+		end
+		return
+	end
+
+	-- Calculate the real screen position
+	local screenGui = btn:FindFirstAncestorOfClass("ScreenGui")
+	local inset = GuiService:GetGuiInset()
+	local offsetY = (screenGui and screenGui.IgnoreGuiInset) and 0 or inset.Y
+	local center = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+
+	-- Executor mouse input
+	if mousemoveabs and mouse1press and mouse1release then
+		mousemoveabs(center.X, center.Y + offsetY)
+		task.wait(0.3)
+		mouse1press()
+		task.wait(0.05)
+		mouse1release()
+	else
+		warn("[AutoBuy] Executor does not support mousemoveabs, mouse1press, or mouse1release!")
+	end
+end
+
+local function startSpamClicking(tradeWindow, other)
+	if isSpamClicking then return end
+	local readyButton = other:FindFirstChild("ReadyButton") or tradeWindow:FindFirstChild("ReadyButton", true)
+	local button = readyButton and getRealButton(readyButton)
+	if not button then
+		warn("[AutoBuy] No ready button found")
+		return
+	end
+
+	isSpamClicking = true
+	task.spawn(function()
+		print("[AutoBuy] Spam clicking " .. button:GetFullName())
+		local attempt = 0
+		while tradeState == "ACCEPTING" and tradeWindow.Visible do
+			attempt = attempt + 1
+			clickButton(button, attempt)
+			task.wait(0.25)
+		end
+		isSpamClicking = false
+	end)
+end
+
+local TRADE_TIMEOUT = 50
+local ACCEPT_TIMEOUT = 25
+local tradeDeadline = nil
+local acceptExtended = false
+
+RunService.Heartbeat:Connect(function()
+	-- 0. Leave if the trade window has been open for too long
+	local liveGui = playerGui:FindFirstChild("TradeLiveTrade")
+	local liveWindow = liveGui and liveGui:FindFirstChild("TradeLiveTrade")
+	if liveWindow and liveWindow.Visible then
+		if not tradeDeadline then
+			tradeDeadline = os.clock() + TRADE_TIMEOUT
+			acceptExtended = false
+		end
+
+		-- Once ACCEPT appears, the customer has a fixed time left to accept back
+		if not acceptExtended then
+			local liveOther = liveWindow:FindFirstChild("Other")
+			local liveReadyButton = liveOther and liveOther:FindFirstChild("ReadyButton")
+			local liveReadyTxt = liveReadyButton and liveReadyButton:FindFirstChild("Txt")
+			if liveReadyTxt and liveReadyTxt.Text == "ACCEPT" then
+				acceptExtended = true
+				tradeDeadline = os.clock() + ACCEPT_TIMEOUT
+				print("[AutoBuy] Accept stage reached. " .. ACCEPT_TIMEOUT .. " seconds left")
+			end
+		end
+
+		if os.clock() >= tradeDeadline then
+			tradeDeadline = os.clock() + TRADE_TIMEOUT -- Waits another 50 seconds if the join fails
+			warn("[AutoBuy] Trade not completed in time. Joining private server...")
+			if activeTradeId then
+				task.spawn(sendDiscordUpdate, activeTradeId, "⏰ Trade was not completed in time, so it was cancelled.", false)
+			end
+			task.spawn(hopToGroovyServer)
+		end
+	else
+		tradeDeadline = nil
+		acceptExtended = false
+	end
+
+	-- 1. Detect Incoming Prompt
+	if tradeState == "IDLE" then
+		local dmp = playerGui:FindFirstChild("DuelsMachinePrompt")
+		if dmp then
+			local dmp2 = dmp:FindFirstChild("DuelsMachinePrompt")
+			if dmp2 then
+				local prompt = dmp2:FindFirstChild("Prompt")
+				if prompt and prompt.Visible then
+					local text = prompt:FindFirstChild("Username") and prompt.Username.Text or ""
+					local sender = string.match(text, "^@(%S+) wants to trade")
+					if sender then
+						local lowerSender = string.lower(sender)
+						if expectedUsers[lowerSender] then
+							activeTradeId = expectedUsers[lowerSender]
+							activeTradeUser = sender
+							dragonsInTrade = 0
+							tradeState = "ACCEPTING_PROMPT"
+							sendDiscordUpdate(activeTradeId, "Incoming trade detected from `" .. sender .. "`. Accepting prompt...", false)
+							
+							local yes = prompt:FindFirstChild("Yes")
+							local yesBtn = yes and getRealButton(yes)
+
+							if yesBtn then
+								task.spawn(function()
+									task.wait(0.2)
+									local attempt = 0
+									local startedAt = os.clock()
+
+									while tradeState == "ACCEPTING_PROMPT" and prompt.Visible and os.clock() - startedAt < 10 do
+										attempt = attempt + 1
+										print("[AutoBuy] Click attempt " .. attempt .. " on " .. yesBtn:GetFullName())
+										clickButton(yesBtn, attempt)
+										task.wait(0.75)
+									end
+
+									-- Reset if the prompt never accepted
+									if tradeState == "ACCEPTING_PROMPT" and prompt.Visible then
+										warn("[AutoBuy] Could not click Yes after 10 seconds")
+										tradeState = "IDLE"
+										activeTradeId = nil
+										activeTradeUser = nil
+									end
+								end)
+							else
+								warn("[AutoBuy] No Yes button found in prompt")
+								tradeState = "IDLE"
+								activeTradeId = nil
+								activeTradeUser = nil
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- 2. Handle Live Trade Window
+	if tradeState == "ACCEPTING_PROMPT" or tradeState == "WAITING_FOR_ITEM" or tradeState == "READYING" or tradeState == "ACCEPTING" then
+		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade")
+		if tradeGui then
+			local tlt = tradeGui:FindFirstChild("TradeLiveTrade")
+			if tlt and tlt.Visible then
+				local other = tlt:FindFirstChild("Other")
+				if other then
+					local dragonCount = countDragonCannelloni(other)
+					local hasDragon = dragonCount > 0
+					if hasDragon then dragonsInTrade = dragonCount end
+					
+					if hasDragon then
+						if tradeState == "ACCEPTING_PROMPT" or tradeState == "WAITING_FOR_ITEM" then
+							tradeState = "READYING"
+							tradeVerifiedAt = os.clock()
+							sendDiscordUpdate(activeTradeId, "🐉 **Dragon Cannelloni** verified! Waiting 4.7 seconds before readying up...", false)
+						end
+						
+						if tradeState == "READYING" then
+							if os.clock() - tradeVerifiedAt >= 4.7 then
+								local readyIcon = other:FindFirstChild("Ready")
+								if readyIcon and readyIcon.Visible then
+									tradeState = "ACCEPTING"
+									sendDiscordUpdate(activeTradeId, "✅ Both players readied up. Waiting for final accept window...", false)
+								end
+							end
+						end
+						
+						if tradeState == "ACCEPTING" then
+							startSpamClicking(tlt, other)
+						end
+					else
+						-- Item removed or not added yet
+						if tradeState == "READYING" or tradeState == "ACCEPTING" then
+							tradeState = "WAITING_FOR_ITEM"
+							sendDiscordUpdate(activeTradeId, "⚠️ Dragon Cannelloni was removed from the trade! Waiting for it to be added back...", false)
+						elseif tradeState == "ACCEPTING_PROMPT" then
+							tradeState = "WAITING_FOR_ITEM"
+							sendDiscordUpdate(activeTradeId, "Trade window is open. Waiting for you to add the Dragon Cannelloni...", false)
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- 3. Check for Completion Notification
+	if activeTradeId then
+		local notifGui = playerGui:FindFirstChild("Notification")
+		if notifGui then
+			local notif = notifGui:FindFirstChild("Notification")
+			if notif then
+				for _, child in ipairs(notif:GetChildren()) do
+					if child:IsA("TextLabel") or child:IsA("TextButton") then
+						local txt = child.Text
+						-- Match regardless of rich text formatting
+						if string.find(txt, "completed!", 1, true) and string.find(txt, activeTradeUser, 1, true) then
+							-- Clear the state BEFORE the request, because the request yields
+							local completedTradeId = activeTradeId
+							tradeState = "IDLE"
+							activeTradeId = nil
+							activeTradeUser = nil
+							child.Text = "Processed"
+
+							-- Only ever report a trade as complete once
+							if not completedTrades[completedTradeId] then
+								completedTrades[completedTradeId] = true
+								local dragonsReceived = dragonsInTrade
+								dragonsInTrade = 0
+								totalDragons = totalDragons + dragonsReceived
+								pcall(function() writefile(DRAGON_FILE, tostring(totalDragons)) end)
+								print("[AutoBuy] Dragons received: " .. dragonsReceived .. " | Total: " .. totalDragons)
+
+								task.spawn(function()
+									sendDiscordUpdate(completedTradeId, "🐉 Dragons received: " .. dragonsReceived .. " | Total: " .. totalDragons, false, dragonsReceived, totalDragons)
+									sendDiscordUpdate(completedTradeId, "Complete", true, dragonsReceived, totalDragons)
+								end)
+							end
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+]==]
+
+loadstring(SOURCE)(SOURCE)
