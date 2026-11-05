@@ -231,6 +231,7 @@ end
 -- GROOVY (PRIVATE SERVER REJOIN)
 -- ==========================================
 local SHARE_CODE = "1a22de6ed0951743a08c0a4504c083fe"
+local LINK_CODE = "" -- The privateServerLinkCode value from the private server link
 local ACCESS_CODE = "078f17ff-a04b-40b3-9f15-8f7dbd1cea0a" -- Paste the server's access code here if the automatic lookup fails
 local GROOVY_INTERVAL = 6.7 * 60 -- 402 seconds
 local GROOVY_FILE = "groovy_enabled.txt"
@@ -309,12 +310,6 @@ local function getAccessCode()
 end
 
 local function joinWithAccessCode(placeId, accessCode)
-	local direct, directErr = pcall(function()
-		TeleportService:TeleportToPrivateServer(placeId, accessCode, {localPlayer})
-	end)
-	if direct then return end
-	warn("[Groovy] TeleportToPrivateServer failed: " .. tostring(directErr))
-
 	local robloxStorage = game:GetService("RobloxReplicatedStorage")
 	local remote = robloxStorage:FindFirstChild("ContactListIrisInviteTeleport", true)
 		or robloxStorage:WaitForChild("ContactListIrisInviteTeleport", 3)
@@ -343,9 +338,19 @@ local function hopToGroovyServer()
 	groovyStatus.Text = "Joining"
 	queueScriptForTeleport()
 
-	local ok, err = pcall(function()
-		joinWithAccessCode(getAccessCode())
-	end)
+	local ok, err = false, "No link code set"
+	if LINK_CODE ~= "" then
+		print("[Groovy] Trying ExperienceService with link code")
+		ok, err = pcall(function()
+			game:GetService("ExperienceService"):LaunchExperience({placeId = game.PlaceId, linkCode = LINK_CODE})
+		end)
+		if not ok then warn("[Groovy] Link code join failed: " .. tostring(err)) end
+	end
+	if not ok then
+		ok, err = pcall(function()
+			joinWithAccessCode(getAccessCode())
+		end)
+	end
 	if not ok then
 		warn("[Groovy] Join failed: " .. tostring(err))
 		warn("[Groovy] Get the access code from: https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/private-servers?limit=100")
