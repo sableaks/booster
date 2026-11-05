@@ -231,7 +231,7 @@ end
 -- GROOVY (PRIVATE SERVER REJOIN)
 -- ==========================================
 local SHARE_CODE = "1a22de6ed0951743a08c0a4504c083fe"
-local LINK_CODE = "" -- The privateServerLinkCode value from the private server link
+local LINK_CODE = "02458602449136580889776811464619" -- The privateServerLinkCode value from the private server link
 local ACCESS_CODE = "078f17ff-a04b-40b3-9f15-8f7dbd1cea0a" -- Paste the server's access code here if the automatic lookup fails
 local GROOVY_INTERVAL = 6.7 * 60 -- 402 seconds
 local GROOVY_FILE = "groovy_enabled.txt"
@@ -318,7 +318,7 @@ local function hopToGroovyServer()
 	groovyStatus.Text = "Joining"
 	queueScriptForTeleport()
 
-	local placeId = game.PlaceId
+	local placeId = 109983668079237
 	local linkCode = findLinkCode()
 	local anyWorked = false
 	local function attempt(name, method)
