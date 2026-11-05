@@ -285,51 +285,31 @@ local function robloxRequest(options)
 	return response
 end
 
-local function getAccessCode()
-	if ACCESS_CODE ~= "" then return game.PlaceId, ACCESS_CODE end
-
-	local resolved = robloxRequest({
-		Url = "https://apis.roblox.com/sharelinks/v1/resolve-link",
-		Method = "POST",
-		Headers = {["Content-Type"] = "application/json"},
-		Body = HttpService:JSONEncode({linkId = SHARE_CODE, linkType = "Server"})
-	})
-	print("[Groovy] Resolve status: " .. tostring(resolved.StatusCode) .. " | " .. string.sub(tostring(resolved.Body), 1, 300))
-
-	local ok, data = pcall(function() return HttpService:JSONDecode(resolved.Body) end)
-	local invite = ok and data and data.privateServerInviteData
-	if not invite then error("Roblox did not return the private server details") end
-
-	local page = req({
-		Url = "https://www.roblox.com/games/" .. tostring(invite.placeId) .. "?privateServerLinkCode=" .. tostring(invite.linkCode),
-		Method = "GET"
-	})
-	local accessCode = string.match(tostring(page.Body), "joinPrivateGame%(%d+,%s*'([%w%-]+)'")
-	if not accessCode then error("Could not find the access code") end
-	return invite.placeId, accessCode
+local function findLinkCode()
+	if LINK_CODE ~= "" then return LINK_CODE end
+	local ok, code = pcall(function()
+		local resolved = robloxRequest({
+			Url = "https://apis.roblox.com/sharelinks/v1/resolve-link",
+			Method = "POST",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = HttpService:JSONEncode({linkId = SHARE_CODE, linkType = "Server"})
+		})
+		print("[Groovy] Resolve status: " .. tostring(resolved.StatusCode))
+		return HttpService:JSONDecode(resolved.Body).privateServerInviteData.linkCode
+	end)
+	if ok and code then return tostring(code) end
+	warn("[Groovy] No link code available")
+	return nil
 end
 
-local function joinWithAccessCode(placeId, accessCode)
-	local robloxStorage = game:GetService("RobloxReplicatedStorage")
-	local remote = robloxStorage:FindFirstChild("ContactListIrisInviteTeleport", true)
-		or robloxStorage:WaitForChild("ContactListIrisInviteTeleport", 3)
-	if remote then
-		print("[Groovy] Using remote: " .. remote:GetFullName())
-		remote:FireServer(placeId, "", accessCode)
-		return
+local function tryJoinMethod(name, method)
+	local ok, err = pcall(method)
+	if ok then
+		print("[Groovy] " .. name .. ": no error")
+	else
+		warn("[Groovy] " .. name .. " failed: " .. tostring(err))
 	end
-
-	-- Log anything that looks like a teleport remote
-	for _, item in ipairs(robloxStorage:GetDescendants()) do
-		local name = string.lower(item.Name)
-		if string.find(name, "teleport", 1, true) or string.find(name, "invite", 1, true) or string.find(name, "contact", 1, true) then
-			print("[Groovy] Found: " .. item:GetFullName() .. " (" .. item.ClassName .. ")")
-		end
-	end
-
-	print("[Groovy] Trying ExperienceService")
-	game:GetService("ExperienceService"):LaunchExperience({placeId = placeId, accessCode = accessCode})
-	print("[Groovy] ExperienceService call returned")
+	return ok
 end
 
 local function hopToGroovyServer()
@@ -338,27 +318,49 @@ local function hopToGroovyServer()
 	groovyStatus.Text = "Joining"
 	queueScriptForTeleport()
 
-	local ok, err = false, "No link code set"
-	if LINK_CODE ~= "" then
-		print("[Groovy] Trying ExperienceService with link code")
-		ok, err = pcall(function()
-			game:GetService("ExperienceService"):LaunchExperience({placeId = game.PlaceId, linkCode = LINK_CODE})
-		end)
-		if not ok then warn("[Groovy] Link code join failed: " .. tostring(err)) end
-	end
-	if not ok then
-		ok, err = pcall(function()
-			joinWithAccessCode(getAccessCode())
-		end)
-	end
-	if not ok then
-		warn("[Groovy] Join failed: " .. tostring(err))
-		warn("[Groovy] Get the access code from: https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/private-servers?limit=100")
-		groovyStatus.Text = "Failed"
+	local placeId = game.PlaceId
+	local linkCode = findLinkCode()
+	local anyWorked = false
+	local function attempt(name, method)
+		if tryJoinMethod(name, method) then anyWorked = true end
+		task.wait(0.5)
 	end
 
+	-- Methods that keep you in the same Roblox session
+	if linkCode then
+		attempt("ExperienceService link code", function()
+			game:GetService("ExperienceService"):LaunchExperience({placeId = placeId, linkCode = linkCode})
+		end)
+	end
+	attempt("ExperienceService access code", function()
+		game:GetService("ExperienceService"):LaunchExperience({placeId = placeId, accessCode = ACCESS_CODE})
+	end)
+	attempt("Invite remote", function()
+		local storage = game:GetService("RobloxReplicatedStorage")
+		local remote = storage:FindFirstChild("ContactListIrisInviteTeleport", true)
+		if not remote then error("Remote not found") end
+		remote:FireServer(placeId, "", ACCESS_CODE)
+	end)
+
+	-- Still here after 5 seconds, so try opening the link instead
+	task.wait(5)
+	local shareUrl = "https://www.roblox.com/share?code=" .. SHARE_CODE .. "&type=Server"
+	attempt("LinkingService share link", function()
+		game:GetService("LinkingService"):OpenUrl("roblox://navigation/share_links?code=" .. SHARE_CODE .. "&type=Server")
+	end)
+	attempt("GuiService browser", function()
+		GuiService:OpenBrowserWindow(shareUrl)
+	end)
+	local openLink = openurl or open_url
+	if openLink then
+		attempt("Executor open link", function()
+			openLink(shareUrl)
+		end)
+	end
+
+	groovyStatus.Text = anyWorked and "Waiting" or "Failed"
 	nextHopAt = os.clock() + GROOVY_INTERVAL
-	task.wait(10) -- Gives the teleport time to happen before allowing another
+	task.wait(10) -- Gives the join time to happen before allowing another
 	isHopping = false
 end
 
