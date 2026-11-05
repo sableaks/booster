@@ -302,12 +302,16 @@ local function findLinkCode()
 	return nil
 end
 
+local joinLog = {}
+
 local function tryJoinMethod(name, method)
 	local ok, err = pcall(method)
 	if ok then
 		print("[Groovy] " .. name .. ": no error")
+		table.insert(joinLog, name .. ": no error")
 	else
 		warn("[Groovy] " .. name .. " failed: " .. tostring(err))
+		table.insert(joinLog, name .. " failed: " .. tostring(err))
 	end
 	return ok
 end
@@ -318,6 +322,7 @@ local function hopToGroovyServer()
 	groovyStatus.Text = "Joining"
 	queueScriptForTeleport()
 
+	joinLog = {}
 	local placeId = 109983668079237
 	local linkCode = findLinkCode()
 	local anyWorked = false
@@ -359,6 +364,17 @@ local function hopToGroovyServer()
 	end
 
 	groovyStatus.Text = anyWorked and "Waiting" or "Failed"
+
+	-- Copy the results so they can be pasted without opening the console
+	local executorName = "unknown"
+	pcall(function() executorName = tostring((identifyexecutor())) end)
+	local report = "Executor: " .. executorName
+		.. "\nqueue_on_teleport: " .. tostring((queue_on_teleport or queueonteleport) ~= nil)
+		.. "\n" .. table.concat(joinLog, "\n")
+	local copy = setclipboard or toclipboard
+	if copy then
+		if pcall(copy, report) then groovyStatus.Text = groovyStatus.Text .. " (copied)" end
+	end
 	nextHopAt = os.clock() + GROOVY_INTERVAL
 	task.wait(10) -- Gives the join time to happen before allowing another
 	isHopping = false
