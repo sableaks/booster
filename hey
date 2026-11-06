@@ -29,7 +29,7 @@ local API_SECRET = "ceded2ea3bf75614c3e933b307ba486676c5c8be43f0652f"
 
 local MAX_SLOTS = 10 -- Pings you to collect once this many items have been received
 local ITEM_WAIT_TIMEOUT = 120 -- Cancels if no listed item is added within this many seconds
-local USE_MOUSE_CLICKS = true -- Set to false if you use an autoclicker at the same time
+local USE_MOUSE_CLICKS = false -- Set to false if you use an autoclicker at the same time
 
 -- ==========================================
 -- ITEM PRICES (USD) - 0 means no price yet
