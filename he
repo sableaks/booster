@@ -1,0 +1,12 @@
+local code = "1a22de6ed0951743a08c0a4504c083fe"
+
+local url = "roblox://navigation/share_links?code=" .. code .. "&type=Server"
+
+if syn and syn.request then
+    syn.request({
+        Url = url,
+        Method = "GET"
+    })
+else
+    warn("Delta does not support opening Roblox deep links through request.")
+end
