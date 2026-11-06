@@ -1,72 +1,132 @@
+-- STEAL A BRAINROT PRIVATE SERVER
+-- Delta executor | 3 methods
+
 local Players = game:GetService("Players")
-local ExperienceService = game:GetService("ExperienceService")
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 
-local PRIVATE_CODE = "02458602449136580889776811464619"
 local PLACE_ID = 109983668079237
+local CODE = "02458602449136580889776811464619"
+
+local URL = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=02458602449136580889776811464619"
+
+-- Remove old GUI
+pcall(function()
+    game:GetService("CoreGui"):FindFirstChild("PrivateServerMethods"):Destroy()
+end)
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "PrivateServerButton"
+gui.Name = "PrivateServerMethods"
 gui.ResetOnSpawn = false
 gui.Parent = game:GetService("CoreGui")
 
-local button = Instance.new("TextButton")
-button.Size = UDim2.new(0, 180, 0, 48)
-button.Position = UDim2.new(0.5, -90, 0.5, -24)
-button.BackgroundColor3 = Color3.fromRGB(110, 65, 190)
-button.TextColor3 = Color3.new(1, 1, 1)
-button.Text = "JOIN PRIVATE SERVER"
-button.TextSize = 14
-button.Font = Enum.Font.GothamBold
-button.Parent = gui
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(230, 205)
+frame.Position = UDim2.new(0.5, -115, 0.5, -100)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+frame.Parent = gui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = button
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 38)
+title.BackgroundTransparency = 1
+title.Text = "PRIVATE SERVER METHODS"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.Parent = frame
+
+local function makeButton(text, y, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -20, 0, 38)
+    button.Position = UDim2.fromOffset(10, y)
+    button.BackgroundColor3 = Color3.fromRGB(105, 65, 180)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Text = text
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 13
+    button.Parent = frame
+
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+
+    button.Activated:Connect(function()
+        local oldText = button.Text
+        button.Text = "TRYING..."
+
+        task.spawn(function()
+            local ok, err = pcall(callback)
+
+            if not ok then
+                warn("[Method Error]", err)
+                button.Text = "FAILED - CHECK CONSOLE"
+            end
+
+            task.wait(2)
+            button.Text = oldText
+        end)
+    end)
+
+    return button
+end
+
+-- METHOD 1: ExperienceService
+makeButton("METHOD 1 - LaunchExperience", 48, function()
+    game:GetService("ExperienceService"):LaunchExperience({
+        placeId = PLACE_ID,
+        linkCode = CODE
+    })
+end)
+
+-- METHOD 2: Open Roblox private server link
+makeButton("METHOD 2 - Open Roblox Link", 94, function()
+    GuiService:OpenBrowserWindow(URL)
+end)
+
+-- METHOD 3: Copy private server link
+makeButton("METHOD 3 - Copy Server Link", 140, function()
+    if not setclipboard then
+        error("Clipboard function unavailable in this executor")
+    end
+
+    setclipboard(URL)
+end)
+
+-- Dragging
 local dragging = false
-local dragStart, startPos
+local dragStart
+local startPosition
 
-button.InputBegan:Connect(function(input)
+title.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
     or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
-        startPos = button.Position
+        startPosition = frame.Position
     end
 end)
 
-game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch) then
+UIS.InputChanged:Connect(function(input)
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+    ) then
         local delta = input.Position - dragStart
-        button.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        frame.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
         )
     end
 end)
 
-game:GetService("UserInputService").InputEnded:Connect(function(input)
+UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
     or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
-    end
-end)
-
-button.Activated:Connect(function()
-    button.Text = "JOINING..."
-    local success = pcall(function()
-        ExperienceService:LaunchExperience({
-            placeId = PLACE_ID,
-            linkCode = PRIVATE_CODE
-        })
-    end)
-
-    if not success then
-        button.Text = "FAILED - TRY AGAIN"
-        task.wait(2)
-        button.Text = "JOIN PRIVATE SERVER"
     end
 end)
