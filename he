@@ -1,111 +1,114 @@
--- STEAL A BRAINROT PRIVATE SERVER
--- Delta executor | 3 methods
-
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
-
-local player = Players.LocalPlayer
+local GuiService = game:GetService("GuiService")
 
 local PLACE_ID = 109983668079237
 local CODE = "02458602449136580889776811464619"
+local URL = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=" .. CODE
 
-local URL = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=02458602449136580889776811464619"
+local CoreGui = game:GetService("CoreGui")
 
--- Remove old GUI
 pcall(function()
-    game:GetService("CoreGui"):FindFirstChild("PrivateServerMethods"):Destroy()
+    CoreGui:FindFirstChild("PrivateServerMethods"):Destroy()
 end)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "PrivateServerMethods"
 gui.ResetOnSpawn = false
-gui.Parent = game:GetService("CoreGui")
+gui.DisplayOrder = 999
+gui.Parent = CoreGui
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(230, 205)
-frame.Position = UDim2.new(0.5, -115, 0.5, -100)
+frame.Size = UDim2.fromOffset(260, 230)
+frame.Position = UDim2.new(0.5, -130, 0.5, -115)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
 frame.Parent = gui
 
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 38)
+title.Size = UDim2.new(1, 0, 0, 42)
 title.BackgroundTransparency = 1
 title.Text = "PRIVATE SERVER METHODS"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 13
+title.TextSize = 14
 title.Parent = frame
 
-local function makeButton(text, y, callback)
+local list = Instance.new("Frame")
+list.Size = UDim2.new(1, -20, 1, -55)
+list.Position = UDim2.fromOffset(10, 48)
+list.BackgroundTransparency = 1
+list.Parent = frame
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = list
+
+local function createButton(name, order, callback)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -20, 0, 38)
-    button.Position = UDim2.fromOffset(10, y)
+    button.Name = name
+    button.Size = UDim2.new(1, 0, 0, 48)
+    button.LayoutOrder = order
     button.BackgroundColor3 = Color3.fromRGB(105, 65, 180)
     button.TextColor3 = Color3.new(1, 1, 1)
-    button.Text = text
+    button.Text = name
     button.Font = Enum.Font.GothamBold
     button.TextSize = 13
-    button.Parent = frame
+    button.Parent = list
 
     Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
 
     button.Activated:Connect(function()
-        local oldText = button.Text
         button.Text = "TRYING..."
 
         task.spawn(function()
             local ok, err = pcall(callback)
 
             if not ok then
-                warn("[Method Error]", err)
+                warn("[Private Server] " .. tostring(err))
                 button.Text = "FAILED - CHECK CONSOLE"
+            else
+                button.Text = "REQUEST SENT"
             end
 
             task.wait(2)
-            button.Text = oldText
+            button.Text = name
         end)
     end)
-
-    return button
 end
 
--- METHOD 1: ExperienceService
-makeButton("METHOD 1 - LaunchExperience", 48, function()
+createButton("METHOD 1 - LaunchExperience", 1, function()
     game:GetService("ExperienceService"):LaunchExperience({
         placeId = PLACE_ID,
         linkCode = CODE
     })
 end)
 
--- METHOD 2: Open Roblox private server link
-makeButton("METHOD 2 - Open Roblox Link", 94, function()
+createButton("METHOD 2 - Open Roblox Link", 2, function()
     GuiService:OpenBrowserWindow(URL)
 end)
 
--- METHOD 3: Copy private server link
-makeButton("METHOD 3 - Copy Server Link", 140, function()
+createButton("METHOD 3 - Copy Server Link", 3, function()
     if not setclipboard then
-        error("Clipboard function unavailable in this executor")
+        error("Clipboard unavailable")
     end
-
     setclipboard(URL)
 end)
 
--- Dragging
+-- Drag panel using title
 local dragging = false
 local dragStart
-local startPosition
+local startPos
 
 title.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
     or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
-        startPosition = frame.Position
+        startPos = frame.Position
     end
 end)
 
@@ -116,10 +119,8 @@ UIS.InputChanged:Connect(function(input)
     ) then
         local delta = input.Position - dragStart
         frame.Position = UDim2.new(
-            startPosition.X.Scale,
-            startPosition.X.Offset + delta.X,
-            startPosition.Y.Scale,
-            startPosition.Y.Offset + delta.Y
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
         )
     end
 end)
