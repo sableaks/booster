@@ -1,12 +1,72 @@
-local code = "1a22de6ed0951743a08c0a4504c083fe"
+local Players = game:GetService("Players")
+local ExperienceService = game:GetService("ExperienceService")
 
-local url = "roblox://navigation/share_links?code=" .. code .. "&type=Server"
+local player = Players.LocalPlayer
 
-if syn and syn.request then
-    syn.request({
-        Url = url,
-        Method = "GET"
-    })
-else
-    warn("Delta does not support opening Roblox deep links through request.")
-end
+local PRIVATE_CODE = "02458602449136580889776811464619"
+local PLACE_ID = 109983668079237
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "PrivateServerButton"
+gui.ResetOnSpawn = false
+gui.Parent = game:GetService("CoreGui")
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 180, 0, 48)
+button.Position = UDim2.new(0.5, -90, 0.5, -24)
+button.BackgroundColor3 = Color3.fromRGB(110, 65, 190)
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Text = "JOIN PRIVATE SERVER"
+button.TextSize = 14
+button.Font = Enum.Font.GothamBold
+button.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = button
+
+local dragging = false
+local dragStart, startPos
+
+button.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = button.Position
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        button.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+button.Activated:Connect(function()
+    button.Text = "JOINING..."
+    local success = pcall(function()
+        ExperienceService:LaunchExperience({
+            placeId = PLACE_ID,
+            linkCode = PRIVATE_CODE
+        })
+    end)
+
+    if not success then
+        button.Text = "FAILED - TRY AGAIN"
+        task.wait(2)
+        button.Text = "JOIN PRIVATE SERVER"
+    end
+end)
