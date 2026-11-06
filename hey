@@ -27,11 +27,17 @@ local GUI_NAME = "AutoBuyListenerUI_FINAL"
 
 local API_SECRET = "ceded2ea3bf75614c3e933b307ba486676c5c8be43f0652f"
 
+local MAX_SLOTS = 10 -- Pings you to collect once this many items have been received
+local ITEM_WAIT_TIMEOUT = 120 -- Cancels if no listed item is added within this many seconds
+local USE_MOUSE_CLICKS = true -- Set to false if you use an autoclicker at the same time
+
 -- ==========================================
 -- ITEM PRICES (USD) - 0 means no price yet
 -- $1 = 1 hour of key time
 -- ==========================================
 local ITEM_PRICES = {
+	["Lavadorito Spinito"] = 0.15,
+	["Ketchuru and Musturu"] = 0.20,
 	["Garama and Madundung"] = 0.54,
 	["Popcuru and Fizzuru"] = 1.25,
 	["Tralaledon"] = 1.25,
@@ -78,6 +84,7 @@ local ITEM_PRICES = {
 	["Plant Bros"] = 611.46,
 	["Polaroidini"] = 682.24,
 	["Headless Horseman"] = 705.76,
+
 	["Kalika Bros"] = 43.14,
 	["Dragon Aquanini"] = 61.57,
 	["Moby Bros"] = 21.17,
@@ -163,9 +170,10 @@ end
 
 local statusLabel = makeBarLabel(80, 1, Color3.fromRGB(255, 255, 255))
 statusLabel.Text = "📡 0 | 💰 $0"
+local slotButton = makeBarButton(52, 6, "📦 0/" .. MAX_SLOTS)
 
 local tradeList = Instance.new("ScrollingFrame")
-tradeList.Size = UDim2.new(1, -226, 1, 0) -- Takes whatever space is left
+tradeList.Size = UDim2.new(1, -282, 1, 0) -- Takes whatever space is left
 tradeList.BackgroundTransparency = 1
 tradeList.BorderSizePixel = 0
 tradeList.ScrollBarThickness = 0
@@ -187,6 +195,13 @@ pcall(function()
 	if isfile(VALUE_FILE) then totalValueReceived = tonumber(readfile(VALUE_FILE)) or 0 end
 end)
 
+local SLOT_FILE = "slots_used.txt"
+local slotsUsed = 0
+pcall(function()
+	if isfile(SLOT_FILE) then slotsUsed = tonumber(readfile(SLOT_FILE)) or 0 end
+end)
+local pendingTradeCount = 0
+
 local activeTradeFrames = {}
 local expectedUsers = {} -- [lower_roblox_username] = tradeId
 
@@ -205,6 +220,7 @@ local function sendDiscordUpdate(tradeId, msg, isComplete, details)
 				items = details.items,
 				totalValue = details.totalValue,
 				keyMinutes = details.keyMinutes,
+				slotCount = details.slotCount,
 				isLifetime = details.isLifetime == true
 			})
 		})
@@ -253,6 +269,7 @@ task.spawn(function()
 						activeTradeFrames[id] = nil
 					end
 				end
+				pendingTradeCount = activeCount
 				statusLabel.Text = "📡 " .. tostring(activeCount) .. " | 💰 $" .. tostring(totalValueReceived)
 			end
 		end
@@ -291,12 +308,67 @@ local function roundCents(value)
 	return math.floor(value * 100 + 0.5) / 100
 end
 
+-- ==========================================
+-- MUTATION MULTIPLIERS & TRAIT BONUS
+-- Keys are the game's __mutation values
+-- ==========================================
+local MUTATION_MULTIPLIERS = {
+	Normal = 1.00,
+	Gold = 1.01,
+	Diamond = 1.01,
+	Lava = 1.67,
+	Divine = 1.76,
+	Candy = 1.88,
+	Rainbow = 2.02,
+	Galaxy = 2.06,
+	Radioactive = 2.07,
+	YinYang = 2.07,
+	Bloodrot = 2.16,
+	Cursed = 2.24,
+	Cyber = 2.29,
+	Phantom = 2.55,
+	Crystal = 3.17,
+	Eclipse = 4.58,
+}
+local TRAIT_BONUS = 0.045 -- +4.5% of the base price per trait
+
+-- Reads the mutation from the 3D model inside the card
+local function getCardMutation(spacer)
+	local viewport = spacer:FindFirstChild("ViewportFrame")
+	local worldModel = viewport and viewport:FindFirstChild("WorldModel")
+	local model = worldModel and worldModel:FindFirstChildWhichIsA("Model")
+	if not model then return "Normal" end
+	local mutation = model:GetAttribute("__mutation") or model:GetAttribute("Mutation")
+	if type(mutation) ~= "string" or mutation == "" then return "Normal" end
+	return mutation
+end
+
+-- Reads the trait icons on the card (each icon is named after its trait)
+local function getCardTraits(spacer)
+	local traits = {}
+	local traitsFrame = spacer:FindFirstChild("Traits")
+	if traitsFrame then
+		for _, icon in ipairs(traitsFrame:GetChildren()) do
+			if icon:IsA("ImageLabel") and icon.Name ~= "Template" and icon.Visible then
+				table.insert(traits, icon.Name)
+			end
+		end
+	end
+	table.sort(traits)
+	return traits
+end
+
+local function getItemPrice(basePrice, mutation, traitCount)
+	local multiplier = MUTATION_MULTIPLIERS[mutation] or 1
+	return basePrice * multiplier + basePrice * TRAIT_BONUS * traitCount
+end
+
 local function scanTradeItems(otherFrame)
-	local details = {items = {}, totalValue = 0, keyMinutes = 0}
+	local details = {items = {}, totalValue = 0, keyMinutes = 0, slotCount = 0}
 	local sf = otherFrame:FindFirstChild("ScrollingFrame")
 	if not sf then return details, "" end
 
-	local found = {}
+	local found = {} -- [name|mutation|traits] = item
 	local count = 0
 	for _, child in ipairs(sf:GetChildren()) do
 		-- Dynamically skip the first instance named Template, check the rest
@@ -307,27 +379,50 @@ local function scanTradeItems(otherFrame)
 				local title = spacer and spacer:FindFirstChild("Title")
 				local entry = title and priceLookup[string.lower(title.Text)]
 				if entry then
-					found[entry.name] = (found[entry.name] or 0) + 1
+					local mutation = getCardMutation(spacer)
+					local traits = getCardTraits(spacer)
+					local key = entry.name .. "|" .. mutation .. "|" .. table.concat(traits, ",")
+					local item = found[key]
+					if not item then
+						item = {
+							name = entry.name,
+							mutation = mutation,
+							traits = traits,
+							count = 0,
+							basePrice = entry.price,
+							price = roundCents(getItemPrice(entry.price, mutation, #traits)),
+						}
+						found[key] = item
+					end
+					item.count = item.count + 1
 				end
 			end
 		end
 	end
 
 	local parts = {}
-	for itemName, amount in pairs(found) do
-		local price = ITEM_PRICES[itemName]
+	for key, item in pairs(found) do
+		local unitPrice = getItemPrice(item.basePrice, item.mutation, #item.traits)
 		table.insert(details.items, {
-			name = itemName,
-			count = amount,
-			price = price,
-			value = roundCents(price * amount),
-			priced = price > 0
+			name = item.name,
+			mutation = item.mutation,
+			traits = item.traits,
+			count = item.count,
+			price = item.price,
+			value = roundCents(unitPrice * item.count),
+			priced = item.basePrice > 0
 		})
-		details.totalValue = details.totalValue + price * amount
-		table.insert(parts, itemName .. "x" .. amount)
+		details.totalValue = details.totalValue + unitPrice * item.count
+		table.insert(parts, key .. "x" .. item.count)
 	end
-	table.sort(details.items, function(a, b) return a.name < b.name end)
+	table.sort(details.items, function(a, b)
+		if a.name ~= b.name then return a.name < b.name end
+		return a.value > b.value
+	end)
 	table.sort(parts)
+	-- Every item takes a slot, even ones not on the price list
+	details.slotCount = math.max(count - 1, 0)
+	if details.slotCount > 0 then table.insert(parts, "slots:" .. details.slotCount) end
 	details.totalValue = roundCents(details.totalValue)
 	details.isLifetime = details.totalValue >= LIFETIME_VALUE
 	details.keyMinutes = (not details.isLifetime) and math.floor(details.totalValue * 60 + 0.5) or nil
@@ -344,10 +439,125 @@ local function describeTradeItems(details)
 	local lines = {}
 	for _, item in ipairs(details.items) do
 		local priceText = item.priced and ("$" .. item.value) or "no price set"
-		table.insert(lines, item.count .. "x " .. item.name .. " (" .. priceText .. ")")
+		local tags = {}
+		if item.mutation and item.mutation ~= "Normal" then table.insert(tags, item.mutation) end
+		if item.traits and #item.traits > 0 then table.insert(tags, #item.traits .. " traits: " .. table.concat(item.traits, "/")) end
+		local tagText = #tags > 0 and (" [" .. table.concat(tags, ", ") .. "]") or ""
+		table.insert(lines, item.count .. "x " .. item.name .. tagText .. " (" .. priceText .. ")")
 	end
+	if #lines == 0 then return "none" end
 	return table.concat(lines, ", ")
 end
+
+-- ==========================================
+-- BOT STATUS (for tickets) & SLOTS
+-- ==========================================
+local promptAcceptedAt = 0
+
+local function getLiveWindow()
+	local gui = playerGui:FindFirstChild("TradeLiveTrade")
+	local window = gui and gui:FindFirstChild("TradeLiveTrade")
+	if window and window.Visible then return window end
+	return nil
+end
+
+local function isPromptVisible()
+	local dmp = playerGui:FindFirstChild("DuelsMachinePrompt")
+	local dmp2 = dmp and dmp:FindFirstChild("DuelsMachinePrompt")
+	local prompt = dmp2 and dmp2:FindFirstChild("Prompt")
+	return prompt ~= nil and prompt.Visible
+end
+
+local function isInTrade()
+	return tradeState ~= "IDLE" or getLiveWindow() ~= nil
+end
+
+-- Server joins wait while any of these are true
+local function isBotBusy()
+	if isInTrade() then return true, "In trade" end
+	if isPromptVisible() then return true, "Prompt" end
+	if pendingTradeCount > 0 then return true, "Tickets" end
+	return false, nil
+end
+
+local function postToApi(path, body)
+	pcall(function()
+		req({
+			Url = API_URL .. path,
+			Method = "POST",
+			Headers = {["Content-Type"] = "application/json", ["X-Api-Key"] = API_SECRET},
+			Body = HttpService:JSONEncode(body)
+		})
+	end)
+end
+
+local function sendBotStatus()
+	postToApi("/api/bot-status", {
+		robloxUsername = localPlayer.Name,
+		robloxDisplayName = localPlayer.DisplayName,
+		inTrade = isInTrade(),
+		activeTradeId = activeTradeId,
+		tradingWith = activeTradeUser,
+		slotsUsed = slotsUsed,
+		maxSlots = MAX_SLOTS,
+		slotsFull = slotsUsed >= MAX_SLOTS
+	})
+end
+
+local function refreshSlotButton()
+	slotButton.Text = "📦 " .. slotsUsed .. "/" .. MAX_SLOTS
+	slotButton.BackgroundColor3 = slotsUsed >= MAX_SLOTS and Color3.fromRGB(170, 60, 60) or Color3.fromRGB(60, 60, 70)
+end
+refreshSlotButton()
+
+local function addSlots(amount)
+	local before = slotsUsed
+	slotsUsed = slotsUsed + amount
+	pcall(function() writefile(SLOT_FILE, tostring(slotsUsed)) end)
+	refreshSlotButton()
+	if before < MAX_SLOTS and slotsUsed >= MAX_SLOTS then
+		warn("[AutoBuy] Slots full (" .. slotsUsed .. "/" .. MAX_SLOTS .. "). Collect your items!")
+		task.spawn(postToApi, "/api/bot-alert", {
+			type = "slots_full",
+			robloxUsername = localPlayer.Name,
+			slotsUsed = slotsUsed,
+			maxSlots = MAX_SLOTS
+		})
+	end
+end
+
+-- Tap twice to reset after collecting
+local resetArmedUntil = 0
+slotButton.MouseButton1Click:Connect(function()
+	if tradeState ~= "IDLE" then return end -- Auto-clicks can land on this button
+	if os.clock() < resetArmedUntil then
+		resetArmedUntil = 0
+		slotsUsed = 0
+		pcall(function() writefile(SLOT_FILE, "0") end)
+		refreshSlotButton()
+		task.spawn(sendBotStatus)
+	else
+		resetArmedUntil = os.clock() + 3
+		slotButton.Text = "Reset?"
+		task.delay(3, function()
+			if os.clock() >= resetArmedUntil then refreshSlotButton() end
+		end)
+	end
+end)
+
+-- Sends the status when it changes, and every 10 seconds so the bot knows it's online
+task.spawn(function()
+	local lastKey = nil
+	local lastSentAt = 0
+	while task.wait(1) do
+		local key = tostring(isInTrade()) .. "|" .. tostring(activeTradeId) .. "|" .. slotsUsed
+		if key ~= lastKey or os.clock() - lastSentAt >= 10 then
+			lastKey = key
+			lastSentAt = os.clock()
+			sendBotStatus()
+		end
+	end
+end)
 
 -- ==========================================
 -- GROOVY (PRIVATE SERVER REJOIN)
@@ -509,27 +719,39 @@ groovyToggle.MouseButton1Click:Connect(function()
 	refreshGroovyToggle()
 end)
 
+local skipQueued = false
+
 skipButton.MouseButton1Click:Connect(function()
 	-- Auto-clicks can land on this button, so ignore it during those stages
-	if tradeState == "ACCEPTING_PROMPT" or tradeState == "ACCEPTING" then
+	if tradeState == "ACCEPTING_PROMPT" or tradeState == "ACCEPTING" or tradeState == "CANCELLING" then
 		warn("[Groovy] Skip ignored during auto-clicking")
 		return
 	end
-	task.spawn(hopToGroovyServer)
+	skipQueued = true
 end)
 
 refreshGroovyToggle()
 
 task.spawn(function()
 	while groovyEnv.GroovyRunId == groovyRunId and task.wait(1) do
-		if groovyEnabled and not isHopping then
-			local remaining = math.ceil(nextHopAt - os.clock())
-			if remaining > 0 then
-				groovyStatus.Text = string.format("%d:%02d", math.floor(remaining / 60), remaining % 60)
-			elseif tradeState ~= "IDLE" then
-				groovyStatus.Text = "In trade"
-			else
-				hopToGroovyServer()
+		if not isHopping then
+			local busy, reason = isBotBusy()
+			if skipQueued then
+				if busy then
+					groovyStatus.Text = "Queued"
+				else
+					skipQueued = false
+					hopToGroovyServer()
+				end
+			elseif groovyEnabled then
+				local remaining = math.ceil(nextHopAt - os.clock())
+				if remaining > 0 then
+					groovyStatus.Text = string.format("%d:%02d", math.floor(remaining / 60), remaining % 60)
+				elseif busy then
+					groovyStatus.Text = reason
+				else
+					hopToGroovyServer()
+				end
 			end
 		end
 	end
@@ -544,7 +766,7 @@ local function getRealButton(yes)
 end
 
 local function clickButton(btn, attempt)
-	if attempt % 2 == 1 then
+	if attempt % 2 == 1 or not USE_MOUSE_CLICKS then
 		-- Fire the button's signals directly
 		for _, signal in ipairs({btn.MouseButton1Down, btn.MouseButton1Click, btn.MouseButton1Up, btn.Activated}) do
 			if firesignal then
@@ -600,46 +822,120 @@ local function startSpamClicking(tradeWindow, other)
 	end)
 end
 
+local function cancelTrade(tradeWindow, reason)
+	if tradeState == "CANCELLING" then return end
+	tradeState = "CANCELLING"
+	warn("[AutoBuy] " .. reason)
+	if activeTradeId then task.spawn(sendDiscordUpdate, activeTradeId, reason, false) end
+
+	local other = tradeWindow:FindFirstChild("Other")
+	local cancelObject = other and other:FindFirstChild("Cancel")
+	local button = cancelObject and getRealButton(cancelObject)
+
+	task.spawn(function()
+		if button then
+			print("[AutoBuy] Spam clicking " .. button:GetFullName())
+			local attempt = 0
+			local startedAt = os.clock()
+			while tradeWindow.Visible and os.clock() - startedAt < 10 do
+				attempt = attempt + 1
+				clickButton(button, attempt)
+				task.wait(0.25)
+			end
+		else
+			warn("[AutoBuy] No cancel button found")
+		end
+
+		-- Backup if the cancel button didn't close the trade
+		if tradeWindow.Visible then
+			warn("[AutoBuy] Cancel didn't close the trade. Joining private server...")
+			hopToGroovyServer()
+		end
+	end)
+end
+
 local TRADE_TIMEOUT = 50
 local ACCEPT_TIMEOUT = 25
 local tradeDeadline = nil
 local acceptExtended = false
+local windowOpenedAt = nil
+local windowClosedAt = nil
 
 RunService.Heartbeat:Connect(function()
-	-- 0. Leave if the trade window has been open for too long
-	local liveGui = playerGui:FindFirstChild("TradeLiveTrade")
-	local liveWindow = liveGui and liveGui:FindFirstChild("TradeLiveTrade")
-	if liveWindow and liveWindow.Visible then
-		if not tradeDeadline then
-			tradeDeadline = os.clock() + TRADE_TIMEOUT
+	-- 0. Timeouts, and resetting after a trade closes
+	local liveWindow = getLiveWindow()
+	if liveWindow then
+		windowClosedAt = nil
+		if not windowOpenedAt then
+			windowOpenedAt = os.clock()
+			tradeDeadline = nil
 			acceptExtended = false
 		end
 
-		-- Once ACCEPT appears, the customer has a fixed time left to accept back
-		if not acceptExtended then
-			local liveOther = liveWindow:FindFirstChild("Other")
-			local liveReadyButton = liveOther and liveOther:FindFirstChild("ReadyButton")
-			local liveReadyTxt = liveReadyButton and liveReadyButton:FindFirstChild("Txt")
-			if liveReadyTxt and liveReadyTxt.Text == "ACCEPT" then
-				acceptExtended = true
-				tradeDeadline = os.clock() + ACCEPT_TIMEOUT
-				print("[AutoBuy] Accept stage reached. " .. ACCEPT_TIMEOUT .. " seconds left")
-			end
-		end
+		local liveOther = liveWindow:FindFirstChild("Other")
+		if activeTradeId and liveOther and tradeState ~= "CANCELLING" then
+			local current = scanTradeItems(liveOther)
+			if current.totalValue <= 0 then
+				-- No listed items yet
+				tradeDeadline = nil
+				acceptExtended = false
+				if os.clock() - windowOpenedAt >= ITEM_WAIT_TIMEOUT then
+					cancelTrade(liveWindow, "⏰ No items were added within " .. ITEM_WAIT_TIMEOUT .. " seconds, so the trade is being cancelled.")
+				end
+			else
+				-- Items added, so the trade has 50 seconds to finish
+				if not tradeDeadline then tradeDeadline = os.clock() + TRADE_TIMEOUT end
 
-		if os.clock() >= tradeDeadline then
-			tradeDeadline = os.clock() + TRADE_TIMEOUT -- Waits another 50 seconds if the join fails
-			warn("[AutoBuy] Trade not completed in time. Joining private server...")
-			if activeTradeId then
-				local timeoutDetails = lastTradeDetails or {items = {}, totalValue = 0, keyMinutes = 0}
-				timeoutDetails.event = "cancelled"
-				task.spawn(sendDiscordUpdate, activeTradeId, "⏰ Trade was not completed in time, so it was cancelled.", false, timeoutDetails)
+				-- Once ACCEPT appears, the customer has a fixed time left to accept back
+				if not acceptExtended then
+					local liveReadyButton = liveOther:FindFirstChild("ReadyButton")
+					local liveReadyTxt = liveReadyButton and liveReadyButton:FindFirstChild("Txt")
+					if liveReadyTxt and liveReadyTxt.Text == "ACCEPT" then
+						acceptExtended = true
+						tradeDeadline = os.clock() + ACCEPT_TIMEOUT
+						print("[AutoBuy] Accept stage reached. " .. ACCEPT_TIMEOUT .. " seconds left")
+					end
+				end
+
+				if os.clock() >= tradeDeadline then
+					cancelTrade(liveWindow, "⏰ Trade was not completed in time, so it is being cancelled.")
+				end
 			end
-			task.spawn(hopToGroovyServer)
 		end
 	else
+		windowOpenedAt = nil
 		tradeDeadline = nil
 		acceptExtended = false
+
+		if tradeState == "WAITING_FOR_ITEM" or tradeState == "READYING" or tradeState == "ACCEPTING" or tradeState == "CANCELLING" then
+			-- Waits a few seconds in case the completion notification is still coming
+			windowClosedAt = windowClosedAt or os.clock()
+			if os.clock() - windowClosedAt >= 6 then
+				local cancelledTradeId = activeTradeId
+				local details = lastTradeDetails or {items = {}, totalValue = 0, keyMinutes = 0, slotCount = 0}
+				tradeState = "IDLE"
+				activeTradeId = nil
+				activeTradeUser = nil
+				lastTradeDetails = nil
+				lastItemSignature = ""
+				windowClosedAt = nil
+				if cancelledTradeId and not completedTrades[cancelledTradeId] then
+					details.event = "cancelled"
+					task.spawn(sendDiscordUpdate, cancelledTradeId, "❌ Trade was cancelled or declined.", false, details)
+				end
+			end
+		elseif tradeState == "ACCEPTING_PROMPT" and not isPromptVisible() and os.clock() - promptAcceptedAt >= 20 then
+			-- The prompt closed but no trade window opened
+			warn("[AutoBuy] Trade window never opened. Resetting")
+			if activeTradeId then
+				task.spawn(sendDiscordUpdate, activeTradeId, "⚠️ The trade window never opened. Please send the trade again.", false)
+			end
+			tradeState = "IDLE"
+			activeTradeId = nil
+			activeTradeUser = nil
+		else
+			windowClosedAt = nil
+		end
 	end
 
 	-- 1. Detect Incoming Prompt
@@ -654,11 +950,12 @@ RunService.Heartbeat:Connect(function()
 					local sender = string.match(text, "^@(%S+) wants to trade")
 					if sender then
 						local lowerSender = string.lower(sender)
-						if expectedUsers[lowerSender] then
+						if expectedUsers[lowerSender] and slotsUsed < MAX_SLOTS then
 							activeTradeId = expectedUsers[lowerSender]
 							activeTradeUser = sender
 							lastItemSignature = ""
 							lastTradeDetails = nil
+							promptAcceptedAt = os.clock()
 							tradeState = "ACCEPTING_PROMPT"
 							sendDiscordUpdate(activeTradeId, "Incoming trade detected from `" .. sender .. "`. Accepting prompt...", false)
 							
@@ -789,6 +1086,7 @@ RunService.Heartbeat:Connect(function()
 
 								details.event = "completed"
 								task.spawn(sendDiscordUpdate, completedTradeId, "Complete", true, details)
+								addSlots(details.slotCount or 0)
 							end
 							break
 						end
