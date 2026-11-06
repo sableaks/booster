@@ -1,133 +1,160 @@
-local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local TeleportService = game:GetService("TeleportService")
-local GuiService = game:GetService("GuiService")
-
-local PLACE_ID = 109983668079237
-local CODE = "02458602449136580889776811464619"
-local URL = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=" .. CODE
+local PlaceId = 109983668079237
+local LinkCode = "02458602449136580889776811464619"
+local FullLink = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=" .. LinkCode
 
 local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local ExperienceService = game:GetService("ExperienceService")
+local TeleportService = game:GetService("TeleportService")
+local LocalPlayer = Players.LocalPlayer
 
-pcall(function()
-    CoreGui:FindFirstChild("PrivateServerMethods"):Destroy()
-end)
+-- Clean up previous instances
+local oldGui = CoreGui:FindFirstChild("PSTeleportDebugUI") or LocalPlayer.PlayerGui:FindFirstChild("PSTeleportDebugUI")
+if oldGui then oldGui:Destroy() end
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "PrivateServerMethods"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 999
-gui.Parent = CoreGui
+-- UI Setup (Dark/Purple/Orange theme)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PSTeleportDebugUI"
+local success, err = pcall(function() ScreenGui.Parent = CoreGui end)
+if not success then ScreenGui.Parent = LocalPlayer.PlayerGui end
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(260, 230)
-frame.Position = UDim2.new(0.5, -130, 0.5, -115)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
-frame.Parent = gui
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 350, 0, 280)
+MainFrame.Position = UDim2.new(0.5, -175, 0.5, -140)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
 
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 42)
-title.BackgroundTransparency = 1
-title.Text = "PRIVATE SERVER METHODS"
-title.TextColor3 = Color3.new(1, 1, 1)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.Parent = frame
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(120, 90, 200)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
 
-local list = Instance.new("Frame")
-list.Size = UDim2.new(1, -20, 1, -55)
-list.Position = UDim2.fromOffset(10, 48)
-list.BackgroundTransparency = 1
-list.Parent = frame
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "PS Teleport Debugger"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.Parent = MainFrame
 
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 8)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = list
+local StatusBox = Instance.new("TextLabel")
+StatusBox.Size = UDim2.new(1, -20, 0, 60)
+StatusBox.Position = UDim2.new(0, 10, 1, -70)
+StatusBox.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+StatusBox.TextColor3 = Color3.fromRGB(255, 170, 0)
+StatusBox.Font = Enum.Font.Code
+StatusBox.TextSize = 12
+StatusBox.TextWrapped = true
+StatusBox.Text = "Awaiting execution..."
+StatusBox.Parent = MainFrame
 
-local function createButton(name, order, callback)
-    local button = Instance.new("TextButton")
-    button.Name = name
-    button.Size = UDim2.new(1, 0, 0, 48)
-    button.LayoutOrder = order
-    button.BackgroundColor3 = Color3.fromRGB(105, 65, 180)
-    button.TextColor3 = Color3.new(1, 1, 1)
-    button.Text = name
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 13
-    button.Parent = list
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 10)
+UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIListLayout.Parent = MainFrame
 
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+-- Spacer
+local Spacer = Instance.new("Frame")
+Spacer.Size = UDim2.new(1, 0, 0, 40)
+Spacer.BackgroundTransparency = 1
+Spacer.LayoutOrder = 1
+Spacer.Parent = MainFrame
 
-    button.Activated:Connect(function()
-        button.Text = "TRYING..."
-
-        task.spawn(function()
-            local ok, err = pcall(callback)
-
-            if not ok then
-                warn("[Private Server] " .. tostring(err))
-                button.Text = "FAILED - CHECK CONSOLE"
-            else
-                button.Text = "REQUEST SENT"
-            end
-
-            task.wait(2)
-            button.Text = name
-        end)
-    end)
+local function createButton(text, order, callback)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, -40, 0, 35)
+    Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Font = Enum.Font.GothamSemibold
+    Btn.TextSize = 14
+    Btn.Text = text
+    Btn.LayoutOrder = order
+    Btn.Parent = MainFrame
+    
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 6)
+    BtnCorner.Parent = Btn
+    
+    Btn.MouseButton1Click:Connect(callback)
+    return Btn
 end
 
-createButton("METHOD 1 - LaunchExperience", 1, function()
-    game:GetService("ExperienceService"):LaunchExperience({
-        placeId = PLACE_ID,
-        linkCode = CODE
-    })
-end)
-
-createButton("METHOD 2 - Open Roblox Link", 2, function()
-    GuiService:OpenBrowserWindow(URL)
-end)
-
-createButton("METHOD 3 - Copy Server Link", 3, function()
-    if not setclipboard then
-        error("Clipboard unavailable")
-    end
-    setclipboard(URL)
-end)
-
--- Drag panel using title
-local dragging = false
-local dragStart
-local startPos
-
-title.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = frame.Position
+-- Method 1: ExperienceService (Used in both Rose and SXE Hubs)
+createButton("Method 1: ExperienceService (Rose/SXE)", 2, function()
+    StatusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    StatusBox.Text = "Testing ExperienceService..."
+    
+    local success, err = pcall(function()
+        ExperienceService:LaunchExperience({ 
+            placeId = PlaceId, 
+            linkCode = LinkCode 
+        })
+    end)
+    
+    if success then
+        StatusBox.TextColor3 = Color3.fromRGB(0, 255, 100)
+        StatusBox.Text = "SUCCESS: ExperienceService fired."
+    else
+        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
+        StatusBox.Text = "FAIL (ExperienceService): " .. tostring(err)
     end
 end)
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and (
-        input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch
-    ) then
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
+-- Method 2: TeleportService Fallback (Standard API)
+createButton("Method 2: TeleportService Fallback", 3, function()
+    StatusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    StatusBox.Text = "Testing TeleportService..."
+    
+    local success, err = pcall(function()
+        TeleportService:TeleportToPrivateServer(PlaceId, LinkCode, {LocalPlayer})
+    end)
+    
+    if success then
+        StatusBox.TextColor3 = Color3.fromRGB(0, 255, 100)
+        StatusBox.Text = "SUCCESS: TeleportService fired."
+    else
+        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
+        StatusBox.Text = "FAIL (TeleportService): " .. tostring(err)
     end
 end)
 
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
+-- Method 3: Manual Clipboard 
+createButton("Method 3: Copy Full Link", 4, function()
+    local success, err = pcall(function()
+        setclipboard(FullLink)
+    end)
+    
+    if success then
+        StatusBox.TextColor3 = Color3.fromRGB(150, 150, 255)
+        StatusBox.Text = "COPIED: Paste into your browser."
+    else
+        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
+        StatusBox.Text = "FAIL (Clipboard): Executor does not support setclipboard."
     end
+end)
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = MainFrame
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
 end)
