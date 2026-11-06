@@ -25,6 +25,80 @@ end
 local API_URL = "http://15.235.11.50:9034"
 local GUI_NAME = "AutoBuyListenerUI_FINAL"
 
+local API_SECRET = "ceded2ea3bf75614c3e933b307ba486676c5c8be43f0652f"
+
+-- ==========================================
+-- ITEM PRICES (USD) - 0 means no price yet
+-- $1 = 1 hour of key time
+-- ==========================================
+local ITEM_PRICES = {
+	["Garama and Madundung"] = 0.54,
+	["Popcuru and Fizzuru"] = 1.25,
+	["Tralaledon"] = 1.25,
+	["Sammyni Fattini"] = 1.28,
+	["Burguro And Fryuro"] = 1.56,
+	["Fragrama and Chocrama"] = 1.71,
+	["La Food Combinasion"] = 1.73,
+	["Capitano Moby"] = 1.85,
+	["Cerberus"] = 1.96,
+	["Celestial Pegasus"] = 2.02,
+	["Spooky and Pumpky"] = 2.04,
+	["Cooki and Milki"] = 2.11,
+	["Los Amigos"] = 2.35,
+	["Reinito Sleighito"] = 2.52,
+	["Los Sekolahs"] = 3.51,
+	["Foxini Lanternini"] = 3.84,
+	["Rosey and Teddy"] = 4.66,
+	["La Casa Boo"] = 6.18,
+	["Ketupat Bros"] = 7.05,
+	["Duggy Bros"] = 7.05,
+	["Dragon Cannelloni"] = 8.62,
+	["Bunny and Eggy"] = 9.40,
+	["Hydra Dragon Cannelloni"] = 13.33,
+	["Ginger Gerat"] = 14.90,
+	["Hydra Bunny"] = 20.39,
+	["La Supreme Combinasion"] = 21.56,
+	["Digi Narwhal"] = 22.74,
+	["Fishino Clownino"] = 34.49,
+	["Phoenix"] = 53.31,
+	["Griffin"] = 54.01,
+	["Antonio"] = 56.38,
+	["Dragon Gingerini"] = 60.38,
+	["Love Love Bear"] = 70.53,
+	["Dragon Skeletonini"] = 90.58,
+	["Arcadragon"] = 94.10,
+	["Los Dragons"] = 94.10,
+	["Elefanto Frigo"] = 98.92,
+	["Skibidi Toilet"] = 155.27,
+	["Meowl"] = 164.60,
+	["John Pork"] = 172.42,
+	["Signore Carapace"] = 273.28,
+	["Strawberry Elephant"] = 376.41,
+	["Orchidox"] = 431.29,
+	["Plant Bros"] = 611.46,
+	["Polaroidini"] = 682.24,
+	["Headless Horseman"] = 705.76,
+
+	-- No price yet
+	["Kalika Bros"] = 0,
+	["Dragon Aquanini"] = 0,
+	["Moby Bros"] = 0,
+	["Kraken"] = 0,
+	["Jelly Moby"] = 0,
+	["Cola Cat"] = 0,
+	["Tirilikalika Tirilikalako"] = 0,
+	["Pancake and Syrup"] = 0,
+	["Hydra Serpent"] = 0,
+	["Venuspino"] = 0,
+	["Grabatron"] = 0,
+	["Sammyni Cakini"] = 0,
+	["Los Secret Combinasionas"] = 0,
+}
+
+-- A trade worth this much or more gets a lifetime key
+local LIFETIME_VALUE = ITEM_PRICES["Dragon Cannelloni"]
+
+
 if targetParent:FindFirstChild(GUI_NAME) then targetParent[GUI_NAME]:Destroy() end
 
 local screen = Instance.new("ScreenGui")
@@ -90,7 +164,7 @@ local function makeBarButton(width, order, text)
 end
 
 local statusLabel = makeBarLabel(80, 1, Color3.fromRGB(255, 255, 255))
-statusLabel.Text = "📡 0 | 🐉 0"
+statusLabel.Text = "📡 0 | 💰 $0"
 
 local tradeList = Instance.new("ScrollingFrame")
 tradeList.Size = UDim2.new(1, -226, 1, 0) -- Takes whatever space is left
@@ -109,21 +183,31 @@ tradeListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 tradeListLayout.Padding = UDim.new(0, 8)
 tradeListLayout.Parent = tradeList
 
+local VALUE_FILE = "total_value_received.txt"
+local totalValueReceived = 0
+pcall(function()
+	if isfile(VALUE_FILE) then totalValueReceived = tonumber(readfile(VALUE_FILE)) or 0 end
+end)
+
 local activeTradeFrames = {}
 local expectedUsers = {} -- [lower_roblox_username] = tradeId
 
-local function sendDiscordUpdate(tradeId, msg, isComplete, dragonsReceived, totalDragons)
+local function sendDiscordUpdate(tradeId, msg, isComplete, details)
+	details = details or {}
 	pcall(function()
 		req({
 			Url = API_URL .. "/api/trade-update",
 			Method = "POST",
-			Headers = {["Content-Type"] = "application/json"},
+			Headers = {["Content-Type"] = "application/json", ["X-Api-Key"] = API_SECRET},
 			Body = HttpService:JSONEncode({
 				tradeId = tradeId,
 				message = msg,
 				isComplete = isComplete == true,
-				dragonsReceived = dragonsReceived,
-				totalDragons = totalDragons
+				event = details.event,
+				items = details.items,
+				totalValue = details.totalValue,
+				keyMinutes = details.keyMinutes,
+				isLifetime = details.isLifetime == true
 			})
 		})
 	end)
@@ -148,7 +232,7 @@ end
 task.spawn(function()
 	while task.wait(2.5) do
 		local success, response = pcall(function()
-			return req({Url = API_URL .. "/api/pending-trades", Method = "GET"})
+			return req({Url = API_URL .. "/api/pending-trades", Method = "GET", Headers = {["X-Api-Key"] = API_SECRET}})
 		end)
 		if success and response.StatusCode == 200 then
 			local dataOk, json = pcall(function() return HttpService:JSONDecode(response.Body) end)
@@ -171,7 +255,7 @@ task.spawn(function()
 						activeTradeFrames[id] = nil
 					end
 				end
-				statusLabel.Text = "📡 " .. tostring(activeCount) .. " | 🐉 " .. tostring(totalDragons)
+				statusLabel.Text = "📡 " .. tostring(activeCount) .. " | 💰 $" .. tostring(totalValueReceived)
 			end
 		end
 	end
@@ -196,35 +280,75 @@ local activeTradeUser = nil
 local tradeVerifiedAt = 0
 local completedTrades = {} -- [tradeId] = true
 
-local DRAGON_FILE = "dragons_received.txt"
-local totalDragons = 0
-pcall(function()
-	if isfile(DRAGON_FILE) then totalDragons = tonumber(readfile(DRAGON_FILE)) or 0 end
-end)
-local dragonsInTrade = 0
 local isSpamClicking = false
+local lastItemSignature = ""
+local lastTradeDetails = nil
 
-local function countDragonCannelloni(otherFrame)
+local priceLookup = {}
+for itemName, price in pairs(ITEM_PRICES) do
+	priceLookup[string.lower(itemName)] = {name = itemName, price = price}
+end
+
+local function roundCents(value)
+	return math.floor(value * 100 + 0.5) / 100
+end
+
+local function scanTradeItems(otherFrame)
+	local details = {items = {}, totalValue = 0, keyMinutes = 0}
 	local sf = otherFrame:FindFirstChild("ScrollingFrame")
-	if not sf then return 0 end
+	if not sf then return details, "" end
+
+	local found = {}
 	local count = 0
-	local dragons = 0
 	for _, child in ipairs(sf:GetChildren()) do
 		-- Dynamically skip the first instance named Template, check the rest
 		if child:IsA("Frame") and child.Name == "Template" then
 			count = count + 1
 			if count > 1 then
 				local spacer = child:FindFirstChild("Spacer")
-				if spacer then
-					local title = spacer:FindFirstChild("Title")
-					if title and title.Text == "Dragon Cannelloni" then
-						dragons = dragons + 1
-					end
+				local title = spacer and spacer:FindFirstChild("Title")
+				local entry = title and priceLookup[string.lower(title.Text)]
+				if entry then
+					found[entry.name] = (found[entry.name] or 0) + 1
 				end
 			end
 		end
 	end
-	return dragons
+
+	local parts = {}
+	for itemName, amount in pairs(found) do
+		local price = ITEM_PRICES[itemName]
+		table.insert(details.items, {
+			name = itemName,
+			count = amount,
+			price = price,
+			value = roundCents(price * amount),
+			priced = price > 0
+		})
+		details.totalValue = details.totalValue + price * amount
+		table.insert(parts, itemName .. "x" .. amount)
+	end
+	table.sort(details.items, function(a, b) return a.name < b.name end)
+	table.sort(parts)
+	details.totalValue = roundCents(details.totalValue)
+	details.isLifetime = details.totalValue >= LIFETIME_VALUE
+	details.keyMinutes = (not details.isLifetime) and math.floor(details.totalValue * 60 + 0.5) or nil
+	return details, table.concat(parts, "|")
+end
+
+local function formatKeyTime(details)
+	if details.isLifetime then return "Lifetime" end
+	local minutes = details.keyMinutes or 0
+	return math.floor(minutes / 60) .. "h " .. (minutes % 60) .. "m"
+end
+
+local function describeTradeItems(details)
+	local lines = {}
+	for _, item in ipairs(details.items) do
+		local priceText = item.priced and ("$" .. item.value) or "no price set"
+		table.insert(lines, item.count .. "x " .. item.name .. " (" .. priceText .. ")")
+	end
+	return table.concat(lines, ", ")
 end
 
 -- ==========================================
@@ -509,7 +633,9 @@ RunService.Heartbeat:Connect(function()
 			tradeDeadline = os.clock() + TRADE_TIMEOUT -- Waits another 50 seconds if the join fails
 			warn("[AutoBuy] Trade not completed in time. Joining private server...")
 			if activeTradeId then
-				task.spawn(sendDiscordUpdate, activeTradeId, "⏰ Trade was not completed in time, so it was cancelled.", false)
+				local timeoutDetails = lastTradeDetails or {items = {}, totalValue = 0, keyMinutes = 0}
+				timeoutDetails.event = "cancelled"
+				task.spawn(sendDiscordUpdate, activeTradeId, "⏰ Trade was not completed in time, so it was cancelled.", false, timeoutDetails)
 			end
 			task.spawn(hopToGroovyServer)
 		end
@@ -533,7 +659,8 @@ RunService.Heartbeat:Connect(function()
 						if expectedUsers[lowerSender] then
 							activeTradeId = expectedUsers[lowerSender]
 							activeTradeUser = sender
-							dragonsInTrade = 0
+							lastItemSignature = ""
+							lastTradeDetails = nil
 							tradeState = "ACCEPTING_PROMPT"
 							sendDiscordUpdate(activeTradeId, "Incoming trade detected from `" .. sender .. "`. Accepting prompt...", false)
 							
@@ -582,17 +709,30 @@ RunService.Heartbeat:Connect(function()
 			if tlt and tlt.Visible then
 				local other = tlt:FindFirstChild("Other")
 				if other then
-					local dragonCount = countDragonCannelloni(other)
-					local hasDragon = dragonCount > 0
-					if hasDragon then dragonsInTrade = dragonCount end
-					
-					if hasDragon then
+					local details, signature = scanTradeItems(other)
+					local hasValue = details.totalValue > 0
+
+					-- Report every change to the items
+					if signature ~= lastItemSignature and signature ~= "" then
+						lastItemSignature = signature
+						lastTradeDetails = details
+						details.event = "items_updated"
+						task.spawn(sendDiscordUpdate, activeTradeId, "🧾 Items: " .. describeTradeItems(details) .. " | Value: $" .. details.totalValue .. " | Estimated key: " .. formatKeyTime(details), false, details)
+
+						-- A change means the wait starts again
+						if tradeState == "READYING" or tradeState == "ACCEPTING" then
+							tradeState = "READYING"
+							tradeVerifiedAt = os.clock()
+						end
+					end
+
+					if hasValue then
 						if tradeState == "ACCEPTING_PROMPT" or tradeState == "WAITING_FOR_ITEM" then
 							tradeState = "READYING"
 							tradeVerifiedAt = os.clock()
-							sendDiscordUpdate(activeTradeId, "🐉 **Dragon Cannelloni** verified! Waiting 4.7 seconds before readying up...", false)
+							sendDiscordUpdate(activeTradeId, "✅ Items verified! Waiting 4.7 seconds before readying up...", false)
 						end
-						
+
 						if tradeState == "READYING" then
 							if os.clock() - tradeVerifiedAt >= 4.7 then
 								local readyIcon = other:FindFirstChild("Ready")
@@ -602,18 +742,18 @@ RunService.Heartbeat:Connect(function()
 								end
 							end
 						end
-						
+
 						if tradeState == "ACCEPTING" then
 							startSpamClicking(tlt, other)
 						end
 					else
-						-- Item removed or not added yet
+						-- Nothing of value in the trade
 						if tradeState == "READYING" or tradeState == "ACCEPTING" then
 							tradeState = "WAITING_FOR_ITEM"
-							sendDiscordUpdate(activeTradeId, "⚠️ Dragon Cannelloni was removed from the trade! Waiting for it to be added back...", false)
+							sendDiscordUpdate(activeTradeId, "⚠️ Items were removed from the trade! Waiting for items to be added...", false)
 						elseif tradeState == "ACCEPTING_PROMPT" then
 							tradeState = "WAITING_FOR_ITEM"
-							sendDiscordUpdate(activeTradeId, "Trade window is open. Waiting for you to add the Dragon Cannelloni...", false)
+							sendDiscordUpdate(activeTradeId, "Trade window is open. Waiting for you to add your items...", false)
 						end
 					end
 				end
@@ -642,16 +782,15 @@ RunService.Heartbeat:Connect(function()
 							-- Only ever report a trade as complete once
 							if not completedTrades[completedTradeId] then
 								completedTrades[completedTradeId] = true
-								local dragonsReceived = dragonsInTrade
-								dragonsInTrade = 0
-								totalDragons = totalDragons + dragonsReceived
-								pcall(function() writefile(DRAGON_FILE, tostring(totalDragons)) end)
-								print("[AutoBuy] Dragons received: " .. dragonsReceived .. " | Total: " .. totalDragons)
+								local details = lastTradeDetails or {items = {}, totalValue = 0, keyMinutes = 0}
+								lastTradeDetails = nil
+								lastItemSignature = ""
+								totalValueReceived = roundCents(totalValueReceived + details.totalValue)
+								pcall(function() writefile(VALUE_FILE, tostring(totalValueReceived)) end)
+								print("[AutoBuy] Received: " .. describeTradeItems(details) .. " | Value: $" .. details.totalValue)
 
-								task.spawn(function()
-									sendDiscordUpdate(completedTradeId, "🐉 Dragons received: " .. dragonsReceived .. " | Total: " .. totalDragons, false, dragonsReceived, totalDragons)
-									sendDiscordUpdate(completedTradeId, "Complete", true, dragonsReceived, totalDragons)
-								end)
+								details.event = "completed"
+								task.spawn(sendDiscordUpdate, completedTradeId, "Complete", true, details)
 							end
 							break
 						end
