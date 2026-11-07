@@ -1,160 +1,23 @@
-local PlaceId = 109983668079237
-local LinkCode = "02458602449136580889776811464619"
-local FullLink = "https://www.roblox.com/games/109983668079237/Steal-a-Brainrot?privateServerLinkCode=" .. LinkCode
-
-local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
-local ExperienceService = game:GetService("ExperienceService")
 local TeleportService = game:GetService("TeleportService")
-local LocalPlayer = Players.LocalPlayer
 
--- Clean up previous instances
-local oldGui = CoreGui:FindFirstChild("PSTeleportDebugUI") or LocalPlayer.PlayerGui:FindFirstChild("PSTeleportDebugUI")
-if oldGui then oldGui:Destroy() end
+local player = Players.LocalPlayer
+local placeId = game.PlaceId
+local jobId = game.JobId
 
--- UI Setup (Dark/Purple/Orange theme)
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PSTeleportDebugUI"
-local success, err = pcall(function() ScreenGui.Parent = CoreGui end)
-if not success then ScreenGui.Parent = LocalPlayer.PlayerGui end
+local attempts = 0
+local maxAttempts = 5
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 350, 0, 280)
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -140)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = MainFrame
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(120, 90, 200)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundTransparency = 1
-Title.Text = "PS Teleport Debugger"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.Parent = MainFrame
-
-local StatusBox = Instance.new("TextLabel")
-StatusBox.Size = UDim2.new(1, -20, 0, 60)
-StatusBox.Position = UDim2.new(0, 10, 1, -70)
-StatusBox.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-StatusBox.TextColor3 = Color3.fromRGB(255, 170, 0)
-StatusBox.Font = Enum.Font.Code
-StatusBox.TextSize = 12
-StatusBox.TextWrapped = true
-StatusBox.Text = "Awaiting execution..."
-StatusBox.Parent = MainFrame
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 10)
-UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-UIListLayout.Parent = MainFrame
-
--- Spacer
-local Spacer = Instance.new("Frame")
-Spacer.Size = UDim2.new(1, 0, 0, 40)
-Spacer.BackgroundTransparency = 1
-Spacer.LayoutOrder = 1
-Spacer.Parent = MainFrame
-
-local function createButton(text, order, callback)
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, -40, 0, 35)
-    Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Btn.Font = Enum.Font.GothamSemibold
-    Btn.TextSize = 14
-    Btn.Text = text
-    Btn.LayoutOrder = order
-    Btn.Parent = MainFrame
-    
-    local BtnCorner = Instance.new("UICorner")
-    BtnCorner.CornerRadius = UDim.new(0, 6)
-    BtnCorner.Parent = Btn
-    
-    Btn.MouseButton1Click:Connect(callback)
-    return Btn
-end
-
--- Method 1: ExperienceService (Used in both Rose and SXE Hubs)
-createButton("Method 1: ExperienceService (Rose/SXE)", 2, function()
-    StatusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    StatusBox.Text = "Testing ExperienceService..."
-    
-    local success, err = pcall(function()
-        ExperienceService:LaunchExperience({ 
-            placeId = PlaceId, 
-            linkCode = LinkCode 
-        })
-    end)
-    
-    if success then
-        StatusBox.TextColor3 = Color3.fromRGB(0, 255, 100)
-        StatusBox.Text = "SUCCESS: ExperienceService fired."
-    else
-        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
-        StatusBox.Text = "FAIL (ExperienceService): " .. tostring(err)
-    end
+TeleportService.TeleportInitFailed:Connect(function(plr, result, err)
+	if plr ~= player then return end
+	attempts += 1
+	if attempts < maxAttempts then
+		warn("Rejoin failed (" .. tostring(err) .. "), retrying...")
+		task.wait(2)
+		TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+	else
+		warn("Rejoin failed after " .. maxAttempts .. " tries, staying in current server.")
+	end
 end)
 
--- Method 2: TeleportService Fallback (Standard API)
-createButton("Method 2: TeleportService Fallback", 3, function()
-    StatusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    StatusBox.Text = "Testing TeleportService..."
-    
-    local success, err = pcall(function()
-        TeleportService:TeleportToPrivateServer(PlaceId, LinkCode, {LocalPlayer})
-    end)
-    
-    if success then
-        StatusBox.TextColor3 = Color3.fromRGB(0, 255, 100)
-        StatusBox.Text = "SUCCESS: TeleportService fired."
-    else
-        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
-        StatusBox.Text = "FAIL (TeleportService): " .. tostring(err)
-    end
-end)
-
--- Method 3: Manual Clipboard 
-createButton("Method 3: Copy Full Link", 4, function()
-    local success, err = pcall(function()
-        setclipboard(FullLink)
-    end)
-    
-    if success then
-        StatusBox.TextColor3 = Color3.fromRGB(150, 150, 255)
-        StatusBox.Text = "COPIED: Paste into your browser."
-    else
-        StatusBox.TextColor3 = Color3.fromRGB(255, 50, 50)
-        StatusBox.Text = "FAIL (Clipboard): Executor does not support setclipboard."
-    end
-end)
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-CloseBtn.Position = UDim2.new(1, -35, 0, 5)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-CloseBtn.Text = "X"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.Parent = MainFrame
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseBtn
-
-CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-end)
+TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
