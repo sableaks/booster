@@ -8002,3 +8002,1096 @@ end
         _G.__HeadlessTPThemeCleanup = nil
     end
 end)()
+
+-- bottom of your other script
+task.spawn(function()
+	-- ==========================================
+-- STEAL LOGGER → DISCORD WEBHOOK
+-- Logs every brainrot you successfully steal: name, mutation, traits,
+-- $/s, rarity, who you took it from, and its wiki picture.
+-- Doesn't require() or call any game code, it only watches attributes and your base.
+-- ==========================================
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1569414326371090492/8vmgR2KGq52ulJmC6HLJ2ps1D__BpQL_Eb0WNC3pWv7_bvJh9Ziq456iYLhXp9-kLcR4"
+local LOG_FAILED_STEALS = false -- true = also log steals you dropped / got caught on
+local ARRIVAL_TIMEOUT = 5 -- seconds to wait for the brainrot to show up in your base
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+
+local req = (syn and syn.request) or request or http_request or (http and http.request)
+if not req then error("Your executor does not support HTTP requests.") end
+
+local localPlayer = Players.LocalPlayer
+local Plots = workspace:WaitForChild("Plots")
+
+-- ==========================================
+-- GAME DATA (copied from the game's Datas.Animals / Mutations / Traits)
+-- [name] = {base $/s, rarity, wiki image path}
+-- ==========================================
+local BRAINROTS = {
+	["Spyder Elephant"] = {1000000000, "OG", "2/2b/Spyder_Elephant_Brainrot.png"},
+	["Strawberry Elephant"] = {750000000, "OG", "9/9e/Strawberry_Elephant_Brainrot.png"},
+	["Meowl"] = {600000000, "OG", "c/c7/Meowl_Brainrot.png"},
+	["Headless Horseman"] = {600000000, "OG", "f/ff/Headless_Horseman_Brainrot.png"},
+	["John Pork"] = {500000000, "OG", "3/31/John_Pork_Brainrot.png"},
+	["Skibidi Toilet"] = {450000000, "OG", "6/62/Skibidi_Toilet_Brainrot.png"},
+	["Phoenix"] = {425000000, "Secret", "2/23/Phoenix_Brainrot.png"},
+	["Los Dragons"] = {425000000, "Secret", "7/73/Los_Dragons_Brainrot.png"},
+	["Griffin"] = {400000000, "Secret", "4/4c/Griffin_Brainrot.png"},
+	["Dragon Aquanini"] = {375000000, "Secret", "a/a0/Dragon_Aquanini_Brainrot.png"},
+	["Dragon Gingerini"] = {350000000, "Secret", "8/88/Dragon_Gingerini_Brainrot.png"},
+	["Dragon Skeletonini"] = {325000000, "Secret", "0/0f/Dragon_Skeletonini_Brainrot.png"},
+	["Plant Bros"] = {300000000, "Secret", "3/3d/Plant_Bros_Brainrot.png"},
+	["Hydra Dragon Cannelloni"] = {300000000, "Secret", "7/77/Hydra_Dragon_Cannelloni_Brainrot.png"},
+	["Signore Carapace"] = {275000000, "Secret", "c/cb/Signore_Carapace_Brainrot.png"},
+	["Dragon Cannelloni"] = {250000000, "Secret", "1/15/Dragon_Cannelloni_Brainrot.png"},
+	["Arca Bros"] = {250000000, "Secret", "6/69/Arca_Bros_Brainrot.png"},
+	["Moby Bros"] = {225000000, "Secret", "f/f5/Moby_Bros_Brainrot.png"},
+	["Love Love Bear"] = {225000000, "Secret", "a/aa/Love_Love_Bear_Brainrot.png"},
+	["Hydra Serpent"] = {220000000, "Secret", "3/32/Hydra_Serpent_Brainrot.png"},
+	["Orchidox"] = {215000000, "Secret", "8/8e/Orchidox_Brainrot.png"},
+	["Arcadragon"] = {215000000, "Secret", "4/47/Arcadragon_Brainrot.png"},
+	["Kraken"] = {200000000, "Secret", "9/90/Kraken_Brainrot.png"},
+	["Digi Narwhal"] = {200000000, "Secret", "b/b9/Digi_Narwhal_Brainrot.png"},
+	["La Supreme Combinasion"] = {200000000, "Secret", "b/be/La_Supreme_Combinasion_Brainrot.png"},
+	["Kalika Bros"] = {190000000, "Secret", "5/54/Kalika_Bros_Brainrot.png"},
+	["Elefanto Frigo"] = {185000000, "Secret", "5/5c/Elefanto_Frigo_Brainrot.png"},
+	["Hydra Bunny"] = {185000000, "Secret", "3/35/Hydra_Bunny_Brainrot.png"},
+	["Medusini and Demonini"] = {180000000, "Secret", "d/dd/Medusini_and_Demonini_Brainrot.png"},
+	["Puppetmaster"] = {177500000, "Secret", "7/7c/Puppetmaster_Brainrot.png"},
+	["Jelly Moby"] = {175000000, "Secret", "e/ec/Jelly_Moby_Brainrot.png"},
+	["Cerberus"] = {175000000, "Secret", "3/3f/Cerberus_Brainrot.png"},
+	["Venuspino"] = {175000000, "Secret", "e/e4/Venuspino_Brainrot.png"},
+	["Celestial Pegasus"] = {175000000, "Secret", "2/22/Celestial_Pegasus_Brainrot.png"},
+	["Bumbatron"] = {172500000, "Secret", "4/4b/Bumbatron_Brainrot.png"},
+	["Bunny and Eggy"] = {170000000, "Secret", "f/f3/Bunny_and_Eggy_Brainrot.png"},
+	["Rosey and Teddy"] = {165000000, "Secret", "5/54/Rosey_and_Teddy_Brainrot.png"},
+	["La Breakfast Combinasion"] = {165000000, "Secret", "8/80/La_Breakfast_Combinasion_Brainrot.png"},
+	["Capitano Moby"] = {160000000, "Secret", "7/7f/Capitano_Moby_Brainrot.png"},
+	["Cola Cat"] = {160000000, "Secret", "c/c1/Cola_Cat_Brainrot.png"},
+	["Skelly and Coffy"] = {155000000, "Secret", "1/17/Skelly_and_Coffy_Brainrot.png"},
+	["Cooki and Milki"] = {155000000, "Secret", "2/28/Cooki_and_Milki_Brainrot.png"},
+	["Los Secret Combinasionas"] = {150000000, "Secret", "1/1f/Los_Secret_Combinasionas_Brainrot.png"},
+	["Burguro And Fryuro"] = {150000000, "Secret", "f/f2/Burguro_And_Fryuro_Brainrot.png"},
+	["Ketupat Bros"] = {145000000, "Secret", "2/24/Ketupat_Bros_Brainrot.png"},
+	["Reinito Sleighito"] = {140000000, "Secret", "7/79/Reinito_Sleighito_Brainrot.png"},
+	["Scarino Crowino"] = {135000000, "Secret", "5/5a/Scarino_Crowino_Brainrot.png"},
+	["Los Amigos"] = {130000000, "Secret", "9/9b/Los_Amigos_Brainrot.png"},
+	["Fortunu and Cashuru"] = {130000000, "Secret", "4/45/Fortunu_and_Cashuru_Brainrot.png"},
+	["Pizza and Ranch"] = {130000000, "Secret", "a/a5/Pizza_and_Ranch_Brainrot.png"},
+	["Pancake and Syrup"] = {125000000, "Secret", "5/55/Pancake_and_Syrup_Brainrot.png"},
+	["Antonio"] = {125000000, "Secret", "4/45/Antonio_Brainrot.png"},
+	["Draculino"] = {120000000, "Secret", "1/19/Draculino_Brainrot.png"},
+	["Fishino Clownino"] = {120000000, "Secret", "2/26/Fishino_Clownino_Brainrot.png"},
+	["Popcuru and Fizzuru"] = {115000000, "Secret", "c/cf/Popcuru_and_Fizzuru_Brainrot.png"},
+	["Foxini Lanternini"] = {115000000, "Secret", "e/ec/Foxini_Lanternini_Brainrot.png"},
+	["Los Sekolahs"] = {110000000, "Secret", "6/66/Los_Sekolahs_Brainrot.png"},
+	["Sammyni Truckini"] = {110000000, "Secret", "1/1e/Sammyni_Truckini_Brainrot.png"},
+	["Cash or Card"] = {100000000, "Secret", "1/1f/Cash_or_Card_Brainrot.png"},
+	["La Casa Boo"] = {100000000, "Secret", "e/ef/La_Casa_Boo_Brainrot.png"},
+	["Fragrama and Chocrama"] = {100000000, "Secret", "a/a5/Fragrama_and_Chocrama_Brainrot.png"},
+	["Los Admins"] = {95000000, "Secret", "3/36/Los_Admins_Brainrot.png"},
+	["La Fuse Machine"] = {95000000, "Secret", "0/08/La_Fuse_Machine_Brainrot.png"},
+	["La Secret Combinasion"] = {95000000, "Secret", "6/6b/La_Secret_Combinasion_Brainrot.png"},
+	["Flying Dutchman"] = {92500000, "Secret", "1/11/Flying_Dutchman_Brainrot.png"},
+	["La Food Combinasion"] = {90000000, "Secret", "8/84/La_Food_Combinasion_Brainrot.png"},
+	["Duggy Bros"] = {90000000, "Secret", "6/61/Duggy_Bros_Brainrot.png"},
+	["Yetimatic"] = {87500000, "Secret", "7/7a/Yetimatic_Brainrot.png"},
+	["S'more Serat"] = {85000000, "Secret", "e/e5/S'more_Serat_Brainrot.png"},
+	["Sammyni Cakini"] = {85000000, "Secret", "6/67/Sammyni_Cakini_Brainrot.png"},
+	["Gold and Diamond"] = {85000000, "Secret", "3/3e/Gold_and_Diamond_Brainrot.png"},
+	["Tirilikalika Tirilikalako"] = {82500000, "Secret", "0/05/Tirilikalika_Tirilikalako_Brainrot.png"},
+	["Sammyni Spookyni"] = {80000000, "Secret", "d/d7/Sammyni_Spookyni_Brainrot.png"},
+	["Spooky and Pumpky"] = {80000000, "Secret", "b/bc/Spooky_and_Pumpky_Brainrot.png"},
+	["Boppin Bunny"] = {80000000, "Secret", "4/4f/Boppin_Bunny_Brainrot.png"},
+	["Cangurato Gelato"] = {77500000, "Secret", "3/38/Cangurato_Gelato_Brainrot.png"},
+	["Spooketti Tualetti"] = {77500000, "Secret", "8/82/Spooketti_Tualetti_Brainrot.png"},
+	["Cobra Gelato"] = {77500000, "Secret", "a/a0/Cobra_Gelato_Brainrot.png"},
+	["Scorpi Inferni"] = {76000000, "Secret", "2/20/Scorpi_Inferni_Brainrot.png"},
+	["Los Hackers"] = {75000000, "Secret", "e/e6/Los_Hackers_Brainrot.png"},
+	["La Craft Machine"] = {75000000, "Secret", "8/89/La_Craft_Machine_Brainrot.png"},
+	["Los Chillis"] = {75000000, "Secret", "f/f9/Los_Chillis_Brainrot.png"},
+	["La Ginger Sekolah"] = {75000000, "Secret", "a/ae/La_Ginger_Sekolah_Brainrot.png"},
+	["Ginger Gerat"] = {75000000, "Secret", "5/53/Ginger_Gerat_Brainrot.png"},
+	["Capitano Americano"] = {72500000, "Secret", "0/08/Capitano_Americano_Brainrot.png"},
+	["Bearito Cabinito"] = {72500000, "Secret", "2/2a/Bearito_Cabinito_Brainrot.png"},
+	["Rubiko and Kubiko"] = {72500000, "Secret", "0/03/Rubiko_and_Kubiko_Brainrot.png"},
+	["Los Spaghettis"] = {70000000, "Secret", "5/5d/Los_Spaghettis_Brainrot.png"},
+	["Examen Bros"] = {70000000, "Secret", "1/1b/Examen_Bros_Brainrot.png"},
+	["Rubrikiko"] = {70000000, "Secret", "4/47/Rubrikiko_Brainrot.png"},
+	["Sammyni Fattini"] = {70000000, "Secret", "6/6f/Sammyni_Fattini_Brainrot.png"},
+	["Gorillo Subwoofero"] = {68000000, "Secret", "1/13/Gorillo_Subwoofero_Brainrot.png"},
+	["Panda Popanda"] = {67000000, "Secret", "1/12/Panda_Popanda_Brainrot.png"},
+	["Festive 67"] = {67000000, "Secret", "e/e1/Festive_67_Brainrot.png"},
+	["Guest 666"] = {66666666, "Secret", "1/13/Guest_666_Brainrot.png"},
+	["Quackini Snackini"] = {65000000, "Secret", "4/4d/Quackini_Snackini_Brainrot.png"},
+	["Queen Bee"] = {65000000, "Secret", "7/70/Queen_Bee_Brainrot.png"},
+	["Ventoliero Pavonero"] = {65000000, "Secret", "f/fd/Ventoliero_Pavonero_Brainrot.png"},
+	["Grabatron"] = {62500000, "Secret", "5/55/Grabatron_Brainrot.png"},
+	["Pop Pop Petalini"] = {62500000, "Secret", "4/45/Pop_Pop_Petalini_Brainrot.png"},
+	["La Summer Grande"] = {60000000, "Secret", "9/93/La_Summer_Grande_Brainrot.png"},
+	["Spaghetti Tualetti"] = {60000000, "Secret", "f/fc/Spaghetti_Tualetti_Brainrot.png"},
+	["Cloverat Clapat"] = {60000000, "Secret", "9/95/Cloverat_Clapat_Brainrot.png"},
+	["Los Tictacs"] = {60000000, "Secret", "3/30/Los_Tictacs_Brainrot.png"},
+	["Lionello Casarello"] = {58500000, "Secret", "d/db/Lionello_Casarello_Brainrot.png"},
+	["Candini Fluffini"] = {57500000, "Secret", "8/8a/Candini_Fluffini_Brainrot.png"},
+	["Steakini Fattini"] = {55000000, "Secret", "2/29/Steakini_Fattini_Brainrot.png"},
+	["Caylusaurus"] = {55000000, "Secret", "7/7b/Caylusaurus_Brainrot.png"},
+	["Polaroidini"] = {55000000, "Secret", "b/bf/Polaroidini_Brainrot.png"},
+	["La Easter Grande"] = {55000000, "Secret", "f/f3/La_Easter_Grande_Brainrot.png"},
+	["Hopilikalika Hopilikalako"] = {55000000, "Secret", "d/d7/Hopilikalika_Hopilikalako_Brainrot.png"},
+	["Pretzo Robo"] = {52500000, "Secret", "e/ea/Pretzo_Robo_Brainrot.png"},
+	["Garama and Madundung"] = {50000000, "Secret", "e/e0/Garama_and_Madundung_Brainrot.png"},
+	["La Anniversary Grande"] = {50000000, "Secret", "4/41/La_Anniversary_Grande_Brainrot.png"},
+	["Nacho Spyder"] = {50000000, "Secret", "7/72/Nacho_Spyder_Brainrot.png"},
+	["Rosetti Tualetti"] = {50000000, "Secret", "5/58/Rosetti_Tualetti_Brainrot.png"},
+	["Scorpino Coasterino"] = {47500000, "Secret", "7/7e/Scorpino_Coasterino_Brainrot.png"},
+	["Chicli Chicla"] = {47500000, "Secret", "a/a0/Chicli_Chicla_Brainrot.png"},
+	["Nachorilla"] = {47500000, "Secret", "e/ea/Nachorilla_Brainrot.png"},
+	["Money Money Bros"] = {47000000, "Secret", "7/70/Money_Money_Bros_Brainrot.png"},
+	["Spooky Spooky Sahur"] = {46000000, "Secret", "7/78/Spooky_Spooky_Sahur_Brainrot.png"},
+	["Orbi Mochi"] = {46000000, "Secret", "3/39/Orbi_Mochi_Brainrot.png"},
+	["Lavadorito Spinito"] = {45000000, "Secret", "5/54/Lavadorito_Spinito_Brainrot.png"},
+	["Gold Gold Gold"] = {45000000, "Secret", "f/f2/Gold_Gold_Gold_Brainrot.png"},
+	["Jolly Jolly Sahur"] = {45000000, "Secret", "d/db/Jolly_Jolly_Sahur_Brainrot.png"},
+	["Gym Bros"] = {42500000, "Secret", "3/3d/Gym_Bros_Brainrot.png"},
+	["Los Tangcitos"] = {42500000, "Secret", "f/fa/Los_Tangcitos_Brainrot.png"},
+	["Ketchuru and Musturu"] = {42500000, "Secret", "2/21/Ketchuru_and_Musturu_Brainrot.png"},
+	["Rico Dinero"] = {42500000, "Secret", "b/b9/Rico_Dinero_Brainrot.png"},
+	["Jacko Jakat"] = {41000000, "Secret", "f/f3/Jacko_Jakat_Brainrot.png"},
+	["La Romantic Grande"] = {40000000, "Secret", "4/49/La_Romantic_Grande_Brainrot.png"},
+	["La Lucky Grande"] = {40000000, "Secret", "8/84/La_Lucky_Grande_Brainrot.png"},
+	["Los Puggies"] = {40000000, "Secret", "d/d0/Los_Puggies_Brainrot.png"},
+	["Orcaledon"] = {40000000, "Secret", "b/ba/Orcaledon_Brainrot.png"},
+	["Swaggy Bros"] = {40000000, "Secret", "9/94/Swaggy_Bros_Brainrot.png"},
+	["Boo Boo Rocket"] = {37500000, "Secret", "b/ba/Boo_Boo_Rocket_Brainrot.png"},
+	["Tictac Sahur"] = {37500000, "Secret", "3/39/Tictac_Sahur_Brainrot.png"},
+	["Ketupat Kepat"] = {35000000, "Secret", "8/8d/Ketupat_Kepat_Brainrot.png"},
+	["La Taco Combinasion"] = {35000000, "Secret", "c/c8/La_Taco_Combinasion_Brainrot.png"},
+	["Dug dug dug"] = {35000000, "Secret", "0/0e/Dug_dug_dug_Brainrot.png"},
+	["Tang Tang Keletang"] = {33500000, "Secret", "0/06/Tang_Tang_Keletang_Brainrot.png"},
+	["Coco and Mango"] = {33500000, "Secret", "7/7c/Coco_and_Mango_Brainrot.png"},
+	["Abyssaloco"] = {33333333, "Secret", "9/93/Abyssaloco_Brainrot.png"},
+	["Esok Goala"] = {32500000, "Secret", "5/5a/Esok_Goala_Brainrot.png"},
+	["Lovin Rose"] = {32500000, "Secret", "2/21/Lovin_Rose_Brainrot.png"},
+	["Noo my Resume"] = {32500000, "Secret", "3/33/Noo_my_Resume_Brainrot.png"},
+	["Fragola La La La"] = {32500000, "Secret", "3/34/Fragola_La_La_La_Brainrot.png"},
+	["Noo my examine"] = {32500000, "Secret", "7/7f/Noo_my_examine_Brainrot.png"},
+	["Bufalino Boomberino"] = {32000000, "Secret", "8/84/Bufalino_Boomberino_Brainrot.png"},
+	["Honey Honey Bear"] = {32000000, "Secret", "9/9f/Honey_Honey_Bear_Brainrot.png"},
+	["Los Tacoritas"] = {32000000, "Secret", "5/50/Los_Tacoritas_Brainrot.png"},
+	["Eviledon"] = {31500000, "Secret", "5/5e/Eviledon_Brainrot.png"},
+	["Pum Pum Pum"] = {31000000, "Secret", "d/df/Pum_Pum_Pum_Brainrot.png"},
+	["Puffino Builderino"] = {31000000, "Secret", "2/26/Puffino_Builderino_Brainrot.png"},
+	["Los Primos"] = {31000000, "Secret", "a/aa/Los_Primos_Brainrot.png"},
+	["Sand Sand Sand"] = {30000000, "Secret", "8/8b/Sand_Sand_Sand_Brainrot.png"},
+	["Los Cupids"] = {30000000, "Secret", "0/01/Los_Cupids_Brainrot.png"},
+	["La Jolly Grande"] = {30000000, "Secret", "d/dd/La_Jolly_Grande_Brainrot.png"},
+	["Esok Sekolah"] = {30000000, "Secret", "2/27/Esok_Sekolah_Brainrot.png"},
+	["Los Mariachis"] = {30000000, "Secret", "2/28/Los_Mariachis_Brainrot.png"},
+	["W or L"] = {30000000, "Secret", "d/dc/W_or_L_Brainrot.png"},
+	["Lavamanta"] = {28500000, "Secret", "9/97/Lavamanta_Brainrot.png"},
+	["Gobblino Uniciclino"] = {27500000, "Secret", "b/b8/Gobblino_Uniciclino_Brainrot.png"},
+	["Globa Steppa"] = {27500000, "Secret", "1/13/Globa_Steppa_Brainrot.png"},
+	["Noodle Noodle Poodle"] = {27500000, "Secret", "3/3a/Noodle_Noodle_Poodle_Brainrot.png"},
+	["Tralaledon"] = {27500000, "Secret", "7/70/Tralaledon_Brainrot.png"},
+	["Tosto Dino"] = {27000000, "Secret", "e/e6/Tosto_Dino_Brainrot.png"},
+	["Oni Oni Panda"] = {27000000, "Secret", "0/00/Oni_Oni_Panda_Brainrot.png"},
+	["Tuff Toucan"] = {26000000, "Secret", "0/06/Tuff_Toucan_Brainrot.png"},
+	["Tacoturbo Tacorito"] = {26000000, "Secret", "b/bf/Tacoturbo_Tacorito_Brainrot.png"},
+	["Mieteteira Bicicleteira"] = {26000000, "Secret", "c/c1/Mieteteira_Bicicleteira_Brainrot.png"},
+	["Money Money Reindeer"] = {25000000, "Secret", "6/62/Money_Money_Reindeer_Brainrot.png"},
+	["Chillin Chili"] = {25000000, "Secret", "7/79/Chillin_Chili_Brainrot.png"},
+	["Chipso and Queso"] = {25000000, "Secret", "0/0a/Chipso_and_Queso_Brainrot.png"},
+	["Fang Fang Draculang"] = {24500000, "Secret", "9/9b/Fang_Fang_Draculang_Brainrot.png"},
+	["La Spooky Grande"] = {24500000, "Secret", "0/06/La_Spooky_Grande_Brainrot.png"},
+	["Los Bros"] = {24000000, "Secret", "8/84/Los_Bros_Brainrot.png"},
+	["La Extinct Grande"] = {23500000, "Secret", "2/2e/La_Extinct_Grande_Brainrot.png"},
+	["Los Fruits"] = {23000000, "Secret", "8/87/Los_Fruits_Brainrot.png"},
+	["Los Candies"] = {23000000, "Secret", "0/03/Los_Candies_Brainrot.png"},
+	["Bat-in-the-Box"] = {22500000, "Secret", "4/4f/Bat-in-the-Box_Brainrot.png"},
+	["Celularcini Viciosini"] = {22500000, "Secret", "7/7d/Celularcini_Viciosini_Brainrot.png"},
+	["Capitano Gullini"] = {22000000, "Secret", "1/1f/Capitano_Gullini_Brainrot.png"},
+	["Churrito Bunnito"] = {21000000, "Secret", "1/1f/Churrito_Bunnito_Brainrot.png"},
+	["Money Money Puggy"] = {21000000, "Secret", "2/20/Money_Money_Puggy_Brainrot.png"},
+	["Los Hotspotsitos"] = {20000000, "Secret", "0/02/Los_Hotspotsitos_Brainrot.png"},
+	["Cigno Fulgoro"] = {20000000, "Secret", "b/b1/Cigno_Fulgoro_Brainrot.png"},
+	["Frullato Framingo"] = {20000000, "Secret", "d/d6/Frullato_Framingo_Brainrot.png"},
+	["Los Jolly Combinasionas"] = {20000000, "Secret", "9/96/Los_Jolly_Combinasionas_Brainrot.png"},
+	["Los Spooky Combinasionas"] = {20000000, "Secret", "5/5e/Los_Spooky_Combinasionas_Brainrot.png"},
+	["Peschito Machito"] = {19000000, "Secret", "b/b1/Peschito_Machito_Brainrot.png"},
+	["Chicleteira Champeona"] = {19000000, "Secret", "e/e3/Chicleteira_Champeona_Brainrot.png"},
+	["Los Planitos"] = {18500000, "Secret", "3/3c/Los_Planitos_Brainrot.png"},
+	["Snailo Clovero"] = {18500000, "Secret", "8/89/Snailo_Clovero_Brainrot.png"},
+	["Girafini Raftini"] = {18000000, "Secret", "e/ed/Girafini_Raftini_Brainrot.png"},
+	["Deputy Leopard"] = {18000000, "Secret", "0/0b/Deputy_Leopard_Brainrot.png"},
+	["DJ Panda"] = {17500000, "Secret", "8/80/DJ_Panda_Brainrot.png"},
+	["Las Sis"] = {17500000, "Secret", "d/dc/Las_Sis_Brainrot.png"},
+	["Chicleteira Cupideira"] = {17500000, "Secret", "3/3b/Chicleteira_Cupideira_Brainrot.png"},
+	["Spinny Hammy"] = {17000000, "Secret", "7/70/Spinny_Hammy_Brainrot.png"},
+	["Camera Ramena"] = {17000000, "Secret", "0/04/Camera_Ramena_Brainrot.png"},
+	["Los Sweethearts"] = {16500000, "Secret", "e/e4/Los_Sweethearts_Brainrot.png"},
+	["Tacorita Bicicleta"] = {16500000, "Secret", "b/b2/Tacorita_Bicicleta_Brainrot.png"},
+	["Motorino Bumbino"] = {16500000, "Secret", "0/0b/Motorino_Bumbino_Brainrot.png"},
+	["Bacuru and Egguru"] = {16000000, "Secret", "2/2e/Bacuru_and_Egguru_Brainrot.png"},
+	["Chicleteira Surfeiteira"] = {16000000, "Secret", "7/73/Chicleteira_Surfeiteira_Brainrot.png"},
+	["Baskito"] = {16000000, "Secret", "6/6f/Baskito_Brainrot.png"},
+	["Los Combinasionas"] = {15000000, "Secret", "2/26/Los_Combinasionas_Brainrot.png"},
+	["Bananito"] = {15000000, "Secret", "3/38/Bananito_Brainrot.png"},
+	["Nuclearo Dinossauro"] = {15000000, "Secret", "3/3b/Nuclearo_Dinossauro_Brainrot.png"},
+	["Chicleteira Noelteira"] = {15000000, "Secret", "4/4d/Chicleteira_Noelteira_Brainrot.png"},
+	["Gattino Hydrantino"] = {14500000, "Secret", "7/76/Gattino_Hydrantino_Brainrot.png"},
+	["Money Money Cat"] = {14500000, "Secret", "a/af/Money_Money_Cat_Brainrot.png"},
+	["Chimnino"] = {14000000, "Secret", "9/95/Chimnino_Brainrot.png"},
+	["Los 67"] = {13500000, "Secret", "5/52/Los_67_Brainrot.png"},
+	["Noo my Gold"] = {13500000, "Secret", "2/21/Noo_my_Gold_Brainrot.png"},
+	["Swag Soda"] = {13000000, "Secret", "f/f9/Swag_Soda_Brainrot.png"},
+	["Spooky Kart"] = {13000000, "Secret", "1/12/Spooky_Kart_Brainrot.png"},
+	["Noo my Heart"] = {13000000, "Secret", "c/cd/Noo_my_Heart_Brainrot.png"},
+	["Mariachi Corazoni"] = {12500000, "Secret", "0/00/Mariachi_Corazoni_Brainrot.png"},
+	["Pogo Pogo Penguin"] = {12500000, "Secret", "b/b0/Pogo_Pogo_Penguin_Brainrot.png"},
+	["Tacorillo Crocodillo"] = {12500000, "Secret", "b/b1/Tacorillo_Crocodillo_Brainrot.png"},
+	["La Grande Combinasion"] = {10000000, "Secret", "e/e1/La_Grande_Combinasion_Brainrot.png"},
+	["Los 25"] = {10000000, "Secret", "1/12/Los_25_Brainrot.png"},
+	["Conetto Morsetto"] = {10000000, "Secret", "8/81/Conetto_Morsetto_Brainrot.png"},
+	["Los Burritos"] = {8500000, "Secret", "2/29/Los_Burritos_Brainrot.png"},
+	["Bananito Skelito"] = {8500000, "Secret", "c/cd/Bananito_Skelito_Brainrot.png"},
+	["Los Mobilis"] = {8500000, "Secret", "b/b8/Los_Mobilis_Brainrot.png"},
+	["Sushi Inu"] = {8000000, "Secret", "f/f5/Sushi_Inu_Brainrot.png"},
+	["Donkeyturbo Express"] = {7500000, "Secret", "0/0f/Donkeyturbo_Express_Brainrot.png"},
+	["67"] = {7500000, "Secret", "4/4e/67_Brainrot.png"},
+	["Sir Mangus"] = {7500000, "Secret", "0/08/Sir_Mangus_Brainrot.png"},
+	["John Doe"] = {7500000, "Secret", "8/80/John_Doe_Brainrot.png"},
+	["Zebrino Pianino"] = {7250000, "Secret", "4/47/Zebrino_Pianino_Brainrot.png"},
+	["Fangaro Lupino"] = {7250000, "Secret", "b/b7/Fangaro_Lupino_Brainrot.png"},
+	["Los Chicleteiras"] = {7000000, "Secret", "b/ba/Los_Chicleteiras_Brainrot.png"},
+	["Noo my Eggs"] = {7000000, "Secret", "8/8f/Noo_my_Eggs_Brainrot.png"},
+	["Burrito Bat"] = {7000000, "Secret", "0/09/Burrito_Bat_Brainrot.png"},
+	["Syrup Samurai"] = {6700000, "Secret", "e/ee/Syrup_Samurai_Brainrot.png"},
+	["Strawberrita"] = {6500000, "Secret", "2/2a/Strawberrita_Brainrot.png"},
+	["Los Mi Gatitos"] = {6500000, "Secret", "c/cd/Los_Mi_Gatitos_Brainrot.png"},
+	["Ombrello Topolino"] = {6500000, "Secret", "f/fe/Ombrello_Topolino_Brainrot.png"},
+	["Rang Ring Bus"] = {6000000, "Secret", "a/a9/Rang_Ring_Bus_Brainrot.png"},
+	["Flipa Sandala"] = {6000000, "Secret", "7/7d/Flipa_Sandala_Brainrot.png"},
+	["Noo my Present"] = {6000000, "Secret", "f/f9/Noo_my_Present_Brainrot.png"},
+	["Serafinna Medusella"] = {5500000, "Secret", "1/1a/Serafinna_Medusella_Brainrot.png"},
+	["Los Nooo My Hotspotsitos"] = {5500000, "Secret", "1/14/Los_Nooo_My_Hotspotsitos_Brainrot.png"},
+	["Var Var Var"] = {5500000, "Secret", "f/fb/Var_Var_Var_Brainrot.png"},
+	["Chicken Zombie"] = {5500000, "Secret", "7/7a/Chicken_Zombie_Brainrot.png"},
+	["Gub"] = {5000000, "Secret", "6/61/Gub_Brainrot.png"},
+	["Noo my Candy"] = {5000000, "Secret", "9/9f/Noo_my_Candy_Brainrot.png"},
+	["Arcadopus"] = {5000000, "Secret", "7/77/Arcadopus_Brainrot.png"},
+	["Futbolini Skatini"] = {4500000, "Secret", "7/78/Futbolini_Skatini_Brainrot.png"},
+	["Los Quesadillas"] = {4500000, "Secret", "4/4f/Los_Quesadillas_Brainrot.png"},
+	["Zombie Bowl"] = {4500000, "Secret", "5/52/Zombie_Bowl_Brainrot.png"},
+	["Aquarino"] = {4250000, "Secret", "7/75/Aquarino_Brainrot.png"},
+	["Los Bunitos"] = {4250000, "Secret", "3/3a/Los_Bunitos_Brainrot.png"},
+	["Granny"] = {4000000, "Secret", "9/92/Granny_Brainrot.png"},
+	["Chill Puppy"] = {4000000, "Secret", "1/1e/Chill_Puppy_Brainrot.png"},
+	["Burrito Bandito"] = {4000000, "Secret", "b/b4/Burrito_Bandito_Brainrot.png"},
+	["Chicleteirina Bicicleteirina"] = {4000000, "Secret", "4/4b/Chicleteirina_Bicicleteirina_Brainrot.png"},
+	["Flancito"] = {3750000, "Secret", "b/ba/Flancito_Brainrot.png"},
+	["Luck Luck Luck Sahur"] = {3750000, "Secret", "0/04/Luck_Luck_Luck_Sahur_Brainrot.png"},
+	["4th Bros"] = {3750000, "Secret", "2/2c/4th_Bros_Brainrot.png"},
+	["Marino Submarino"] = {3600000, "Secret", "7/72/Marino_Submarino_Brainrot.png"},
+	["Brunito Marsito"] = {3500000, "Secret", "7/7c/Brunito_Marsito_Brainrot.png"},
+	["Quesadillo Vampiro"] = {3500000, "Secret", "6/61/Quesadillo_Vampiro_Brainrot.png"},
+	["Chicleteira Bicicleteira"] = {3500000, "Secret", "6/6b/Chicleteira_Bicicleteira_Brainrot.png"},
+	["Eid Eid Eid Sahur"] = {3500000, "Secret", "2/22/Eid_Eid_Eid_Sahur_Brainrot.png"},
+	["Cupid Hotspot"] = {3500000, "Secret", "4/40/Cupid_Hotspot_Brainrot.png"},
+	["Qamar Camelamp"] = {3300000, "Secret", "c/ca/Qamar_Camelamp_Brainrot.png"},
+	["Octoball"] = {3250000, "Secret", "5/53/Octoball_Brainrot.png"},
+	["Mi Gatito"] = {3250000, "Secret", "e/e2/Mi_Gatito_Brainrot.png"},
+	["Ho Ho Ho Sahur"] = {3250000, "Secret", "1/12/Ho_Ho_Ho_Sahur_Brainrot.png"},
+	["Cupid Cupid Sahur"] = {3100000, "Secret", "c/c1/Cupid_Cupid_Sahur_Brainrot.png"},
+	["Rosatops Triceratino"] = {3100000, "Secret", "a/ac/Rosatops_Triceratino_Brainrot.png"},
+	["Los Cornis"] = {3100000, "Secret", "3/3d/Los_Cornis_Brainrot.png"},
+	["Rocketini Frostini"] = {3000000, "Secret", "0/0f/Rocketini_Frostini_Brainrot.png"},
+	["Naughty Naughty"] = {3000000, "Secret", "3/31/Naughty_Naughty_Brainrot.png"},
+	["Pot Pumpkin"] = {3000000, "Secret", "1/16/Pot_Pumpkin_Brainrot.png"},
+	["Bunito Bunito Spinito"] = {3000000, "Secret", "d/dc/Bunito_Bunito_Spinito_Brainrot.png"},
+	["Quesadilla Crocodila"] = {3000000, "Secret", "7/75/Quesadilla_Crocodila_Brainrot.png"},
+	["Rockarino Rockara"] = {3000000, "Secret", "4/4f/Rockarino_Rockara_Brainrot.png"},
+	["Ref Ref Ref Sahur"] = {2750000, "Secret", "d/df/Ref_Ref_Ref_Sahur_Brainrot.png"},
+	["Buho de Volto"] = {2750000, "Secret", "a/a3/Buho_de_Volto_Brainrot.png"},
+	["Horegini Boom"] = {2750000, "Secret", "0/0c/Horegini_Boom_Brainrot.png"},
+	["Santa Hotspot"] = {2600000, "Secret", "d/d2/Santa_Hotspot_Brainrot.png"},
+	["Skooter Skelly"] = {2600000, "Secret", "a/a6/Skooter_Skelly_Brainrot.png"},
+	["Rexino Ramino"] = {2600000, "Secret", "9/9c/Rexino_Ramino_Brainrot.png"},
+	["Pirulitoita Bicicleteira"] = {2500000, "Secret", "f/fe/Pirulitoita_Bicicleteira_Brainrot.png"},
+	["25"] = {2500000, "Secret", "d/d0/25_Brainrot.png"},
+	["Pot Hotspot"] = {2500000, "Secret", "3/3a/Pot_Hotspot_Brainrot.png"},
+	["Gelatina Volatina"] = {2400000, "Secret", "2/2e/Gelatina_Volatina_Brainrot.png"},
+	["Glaciator"] = {2300000, "Secret", "c/cc/Glaciator_Brainrot.png"},
+	["Pin Pin Pengu"] = {2300000, "Secret", "1/11/Pin_Pin_Pengu_Brainrot.png"},
+	["Los Sigmas"] = {2300000, "Secret", "2/2c/Los_Sigmas_Brainrot.png"},
+	["Toro Españolo"] = {2250000, "Secret", "b/ba/Toro_Españolo_Brainrot.png"},
+	["To to to Sahur"] = {2250000, "Secret", "e/e8/To_to_to_Sahur_Brainrot.png"},
+	["Bunny Bunny Bunny Sahur"] = {2250000, "Secret", "1/1d/Bunny_Bunny_Bunny_Sahur_Brainrot.png"},
+	["Yess my Resume"] = {2100000, "Secret", "3/3d/Yess_my_Resume_Brainrot.png"},
+	["La Sahur Combinasion"] = {2000000, "Secret", "f/ff/La_Sahur_Combinasion_Brainrot.png"},
+	["Telemorte"] = {2000000, "Secret", "3/32/Telemorte_Brainrot.png"},
+	["List List List Sahur"] = {2000000, "Secret", "c/c7/List_List_List_Sahur_Brainrot.png"},
+	["Capibaro Celestino"] = {1750000, "Secret", "c/c7/Capibaro_Celestino_Brainrot.png"},
+	["Pelican Pachetto"] = {1750000, "Secret", "6/67/Pelican_Pachetto_Brainrot.png"},
+	["Co Co Co Sahur"] = {1750000, "Secret", "6/6c/Co_Co_Co_Sahur_Brainrot.png"},
+	["Grim Cheese"] = {1600000, "Secret", "5/5b/Grim_Cheese_Brainrot.png"},
+	["Ski Ski Skunki"] = {1600000, "Secret", "d/d7/Ski_Ski_Skunki_Brainrot.png"},
+	["Bunnyman"] = {1500000, "Secret", "2/25/Bunnyman_Brainrot.png"},
+	["Nooo My Hotspot"] = {1500000, "Secret", "e/e6/Nooo_My_Hotspot_Brainrot.png"},
+	["Los Jobcitos"] = {1500000, "Secret", "3/3f/Los_Jobcitos_Brainrot.png"},
+	["Berryno"] = {1500000, "Secret", "f/fb/Berryno_Brainrot.png"},
+	["Gelato Lumacho"] = {1400000, "Secret", "7/71/Gelato_Lumacho_Brainrot.png"},
+	["Cuadramat and Pakrahmatmamat"] = {1400000, "Secret", "d/df/Cuadramat_and_Pakrahmatmamat_Brainrot.png"},
+	["Please my Present"] = {1300000, "Secret", "d/d3/Please_my_Present_Brainrot.png"},
+	["Craburger"] = {1300000, "Secret", "a/ad/Craburger_Brainrot.png"},
+	["Easter Easter Easter Sahur"] = {1250000, "Secret", "7/75/Easter_Easter_Easter_Sahur_Brainrot.png"},
+	["Los Cucarachas"] = {1250000, "Secret", "f/ff/Los_Cucarachas_Brainrot.png"},
+	["Hippo Golazo"] = {1250000, "Secret", "e/e3/Hippo_Golazo_Brainrot.png"},
+	["Los Treaters"] = {1200000, "Secret", "2/26/Los_Treaters_Brainrot.png"},
+	["1x1x1x1"] = {1111111, "Secret", "0/08/1x1x1x1_Brainrot.png"},
+	["La Vacca Lepre Lepreino"] = {1100000, "Secret", "8/88/La_Vacca_Lepre_Lepreino_Brainrot.png"},
+	["Graipuss Medussi"] = {1000000, "Secret", "1/1b/Graipuss_Medussi_Brainrot.png"},
+	["Bombardiro Vaccariro"] = {1000000, "Secret", "f/f9/Bombardiro_Vaccariro_Brainrot.png"},
+	["Perrito Burrito"] = {1000000, "Secret", "b/b0/Perrito_Burrito_Brainrot.png"},
+	["Love Love Love Sahur"] = {1000000, "Secret", "d/d5/Love_Love_Love_Sahur_Brainrot.png"},
+	["Giftini Spyderini"] = {999999, "Secret", "f/f7/Giftini_Spyderini_Brainrot.png"},
+	["Ranito Pepito"] = {950000, "Secret", "a/aa/Ranito_Pepito_Brainrot.png"},
+	["GOAT"] = {950000, "Secret", "d/d4/GOAT_Brainrot.png"},
+	["Honey Honey Narwhal"] = {950000, "Secret", "9/9c/Honey_Honey_Narwhal_Brainrot.png"},
+	["Paradiso Axolottino"] = {900000, "Secret", "e/ee/Paradiso_Axolottino_Brainrot.png"},
+	["Trickolino"] = {900000, "Secret", "0/09/Trickolino_Brainrot.png"},
+	["Triplito Tralaleritos"] = {875000, "Secret", "a/a8/Triplito_Tralaleritos_Brainrot.png"},
+	["Buntteo"] = {850000, "Secret", "7/78/Buntteo_Brainrot.png"},
+	["La Vacca Jacko Linterino"] = {850000, "Secret", "4/47/La_Vacca_Jacko_Linterino_Brainrot.png"},
+	["Fishboard"] = {825000, "Secret", "b/bb/Fishboard_Brainrot.png"},
+	["Santteo"] = {800000, "Secret", "2/27/Santteo_Brainrot.png"},
+	["Los Karkeritos"] = {750000, "Secret", "7/7b/Los_Karkeritos_Brainrot.png"},
+	["Las Vaquitas Saturnitas"] = {750000, "Secret", "5/50/Las_Vaquitas_Saturnitas_Brainrot.png"},
+	["Karker Sahur"] = {725000, "Secret", "8/8c/Karker_Sahur_Brainrot.png"},
+	["Job Job Job Sahur"] = {700000, "Secret", "7/7d/Job_Job_Job_Sahur_Brainrot.png"},
+	["Frankentteo"] = {700000, "Secret", "1/13/Frankentteo_Brainrot.png"},
+	["Los Trios"] = {700000, "Secret", "f/fc/Los_Trios_Brainrot.png"},
+	["Las Tralaleritas"] = {650000, "Secret", "e/ed/Las_Tralaleritas_Brainrot.png"},
+	["Pumpkini Spyderini"] = {650000, "Secret", "7/79/Pumpkini_Spyderini_Brainrot.png"},
+	["Rocco Disco"] = {650000, "Secret", "8/8c/Rocco_Disco_Brainrot.png"},
+	["Extinct Matteo"] = {625000, "Secret", "1/1d/Extinct_Matteo_Brainrot.png"},
+	["La Vacca Prese Presente"] = {600000, "Secret", "8/81/La_Vacca_Prese_Presente_Brainrot.png"},
+	["Reindeer Tralala"] = {600000, "Secret", "4/41/Reindeer_Tralala_Brainrot.png"},
+	["La Karkerkar Combinasion"] = {600000, "Secret", "1/17/La_Karkerkar_Combinasion_Brainrot.png"},
+	["Yess my examine"] = {575000, "Secret", "4/4e/Yess_my_examine_Brainrot.png"},
+	["Guerriro Digitale"] = {550000, "Secret", "a/a4/Guerriro_Digitale_Brainrot.png"},
+	["Boatito Auratito"] = {525000, "Secret", "4/4b/Boatito_Auratito_Brainrot.png"},
+	["Los Tortus"] = {500000, "Secret", "5/5e/Los_Tortus_Brainrot.png"},
+	["Vulturino Skeletono"] = {500000, "Secret", "a/a0/Vulturino_Skeletono_Brainrot.png"},
+	["Zombie Tralala"] = {500000, "Secret", "9/91/Zombie_Tralala_Brainrot.png"},
+	["Los Tralaleritos"] = {500000, "Secret", "b/b2/Los_Tralaleritos_Brainrot.png"},
+	["La Cucaracha"] = {475000, "Secret", "8/8b/La_Cucaracha_Brainrot.png"},
+	["Extinct Tralalero"] = {450000, "Secret", "5/52/Extinct_Tralalero_Brainrot.png"},
+	["Agarrini la Palini"] = {425000, "Secret", "1/1f/Agarrini_la_Palini_Brainrot.png"},
+	["Los Spyderinis"] = {425000, "Secret", "9/9c/Los_Spyderinis_Brainrot.png"},
+	["Blackhole Goat"] = {400000, "Secret", "c/c6/Blackhole_Goat_Brainrot.png"},
+	["Chachechi"] = {400000, "Secret", "3/38/Chachechi_Brainrot.png"},
+	["Dul Dul Dul"] = {375000, "Secret", "f/f6/Dul_Dul_Dul_Brainrot.png"},
+	["Torrtuginni Dragonfrutini"] = {350000, "Secret", "2/21/Torrtuginni_Dragonfrutini_Brainrot.png"},
+	["Trenostruzzo Turbo 4000"] = {335000, "Secret", "a/ab/Trenostruzzo_Turbo_4000_Brainrot.png"},
+	["Sammyni Spyderini"] = {330000, "Secret", "b/bd/Sammyni_Spyderini_Brainrot.png"},
+	["Bisonte Giuppitere"] = {325000, "Secret", "8/85/Bisonte_Giuppitere_Brainrot.png"},
+	["Los Matteos"] = {325000, "Secret", "f/fd/Los_Matteos_Brainrot.png"},
+	["Karkerkar Kurkur"] = {325000, "Secret", "f/f7/Karkerkar_Kurkur_Brainrot.png"},
+	["La Vacca Saturno Saturnita"] = {325000, "Secret", "8/8a/La_Vacca_Saturno_Saturnita_Brainrot.png"},
+	["Mortaruga"] = {324000, "Brainrot God", "f/ff/Mortaruga_Brainrot.png"},
+	["Slushi Huski"] = {322500, "Brainrot God", "3/32/Slushi_Huski_Brainrot.png"},
+	["Candi Corni"] = {321000, "Brainrot God", "a/a8/Candi_Corni_Brainrot.png"},
+	["Tenini Ballini"] = {320000, "Brainrot God", "b/bd/Tenini_Ballini_Brainrot.png"},
+	["Robo Grafito"] = {317500, "Brainrot God", "b/b0/Robo_Grafito_Brainrot.png"},
+	["Tortuginni Sandcastlini"] = {317500, "Brainrot God", "0/03/Tortuginni_Sandcastlini_Brainrot.png"},
+	["Flippo Marino"] = {316000, "Brainrot God", "2/2f/Flippo_Marino_Brainrot.png"},
+	["Jackorilla"] = {315000, "Secret", "6/63/Jackorilla_Brainrot.png"},
+	["Beavo Potto"] = {315000, "Brainrot God", "d/db/Beavo_Potto_Brainrot.png"},
+	["Dumborino Miracello"] = {315000, "Brainrot God", "d/df/Dumborino_Miracello_Brainrot.png"},
+	["Eggdin Egg Egg Dun"] = {310000, "Brainrot God", "a/a9/Eggdin_Egg_Egg_Dun_Brainrot.png"},
+	["Clovkur Kurkur"] = {305000, "Brainrot God", "e/eb/Clovkur_Kurkur_Brainrot.png"},
+	["Appelini"] = {300000, "Brainrot God", "9/9c/Appelini_Brainrot.png"},
+	["Skul Skuli Skuli"] = {300000, "Brainrot God", "a/ae/Skul_Skuli_Skuli_Brainrot.png"},
+	["Karkerheart Luvkur"] = {297500, "Brainrot God", "8/87/Karkerheart_Luvkur_Brainrot.png"},
+	["Pop Pop Sahur"] = {295000, "Brainrot God", "9/92/Pop_Pop_Sahur_Brainrot.png"},
+	["Tic Tic Rick"] = {295000, "Brainrot God", "e/ec/Tic_Tic_Rick_Brainrot.png"},
+	["Dolphini Jetskini"] = {294500, "Brainrot God", "0/08/Dolphini_Jetskini_Brainrot.png"},
+	["Pandanini Frostini"] = {294000, "Brainrot God", "a/a7/Pandanini_Frostini_Brainrot.png"},
+	["Ginger Cisterna"] = {293500, "Brainrot God", "0/06/Ginger_Cisterna_Brainrot.png"},
+	["Tentacolo Tecnico"] = {292500, "Brainrot God", "f/fb/Tentacolo_Tecnico_Brainrot.png"},
+	["Cocoa Assassino"] = {291000, "Brainrot God", "f/f7/Cocoa_Assassino_Brainrot.png"},
+	["Belula Beluga"] = {290000, "Brainrot God", "3/3f/Belula_Beluga_Brainrot.png"},
+	["Skull Skull Skull"] = {290000, "Brainrot God", "4/46/Skull_Skull_Skull_Brainrot.png"},
+	["Krupuk Pagi Pagi"] = {290000, "Brainrot God", "a/a7/Krupuk_Pagi_Pagi_Brainrot.png"},
+	["Patteo"] = {287500, "Brainrot God", "3/36/Patteo_Brainrot.png"},
+	["Cappuccino Clownino"] = {285000, "Brainrot God", "c/ce/Cappuccino_Clownino_Brainrot.png"},
+	["Mummelo Bandello"] = {285000, "Brainrot God", "7/7a/Mummelo_Bandello_Brainrot.png"},
+	["Brasilini Berimbini"] = {285000, "Brainrot God", "0/06/Brasilini_Berimbini_Brainrot.png"},
+	["Luv Luv Luv"] = {282500, "Brainrot God", "c/ce/Luv_Luv_Luv_Brainrot.png"},
+	["Hippo Jacuzzo"] = {282500, "Brainrot God", "2/2b/Hippo_Jacuzzo_Brainrot.png"},
+	["Astrolero Cervalero"] = {280000, "Brainrot God", "2/22/Astrolero_Cervalero_Brainrot.png"},
+	["Lemonita Splashita"] = {280000, "Brainrot God", "e/e7/Lemonita_Splashita_Brainrot.png"},
+	["Noo La Polizia"] = {280000, "Brainrot God", "b/b6/Noo_La_Polizia_Brainrot.png"},
+	["Anpali Babel"] = {280000, "Brainrot God", "5/5a/Anpali_Babel_Brainrot.png"},
+	["Chrismasmamat"] = {277500, "Brainrot God", "a/a9/Chrismasmamat_Brainrot.png"},
+	["Mastodontico Telepiedone"] = {275000, "Brainrot God", "7/74/Mastodontico_Telepiedone_Brainrot.png"},
+	["Los Gattitos"] = {275000, "Brainrot God", "a/af/Los_Gattitos_Brainrot.png"},
+	["Bambu Bambu Sahur"] = {275000, "Brainrot God", "4/44/Bambu_Bambu_Sahur_Brainrot.png"},
+	["Piccionetta Macchina"] = {270000, "Brainrot God", "8/8e/Piccionetta_Macchina_Brainrot.png"},
+	["Boba Panda"] = {270000, "Brainrot God", "b/bb/Boba_Panda_Brainrot.png"},
+	["Bunny Tralala"] = {270000, "Brainrot God", "e/e9/Bunny_Tralala_Brainrot.png"},
+	["Buho de Noelo"] = {267500, "Brainrot God", "8/83/Buho_de_Noelo_Brainrot.png"},
+	["Quackalena"] = {265000, "Brainrot God", "7/79/Quackalena_Brainrot.png"},
+	["Lumaca Malefica"] = {265000, "Brainrot God", "c/c1/Lumaca_Malefica_Brainrot.png"},
+	["Frio Ninja"] = {265000, "Brainrot God", "a/a4/Frio_Ninja_Brainrot.png"},
+	["Tootini Shrimpini"] = {260000, "Brainrot God", "c/c5/Tootini_Shrimpini_Brainrot.png"},
+	["Los Tipi Tacos"] = {260000, "Brainrot God", "9/96/Los_Tipi_Tacos_Brainrot.png"},
+	["Granchiello Spiritell"] = {260000, "Brainrot God", "9/90/Granchiello_Spiritell_Brainrot.png"},
+	["Yeti Claus"] = {257500, "Brainrot God", "b/ba/Yeti_Claus_Brainrot.png"},
+	["Ginger Globo"] = {257500, "Brainrot God", "5/54/Ginger_Globo_Brainrot.png"},
+	["Lazy Ducky"] = {255000, "Brainrot God", "8/8f/Lazy_Ducky_Brainrot.png"},
+	["Trenotubo Axolotrico 9000"] = {255000, "Brainrot God", "9/9a/Trenotubo_Axolotrico_9000_Brainrot.png"},
+	["Corn Corn Corn Sahur"] = {250000, "Brainrot God", "b/be/Corn_Corn_Corn_Sahur_Brainrot.png"},
+	["Snailenzo"] = {250000, "Brainrot God", "0/02/Snailenzo_Brainrot.png"},
+	["Mummy Ambalabu"] = {250000, "Brainrot God", "0/04/Mummy_Ambalabu_Brainrot.png"},
+	["Squalanana"] = {250000, "Brainrot God", "0/01/Squalanana_Brainrot.png"},
+	["Tartaruga Cisterna"] = {250000, "Brainrot God", "2/22/Tartaruga_Cisterna_Brainrot.png"},
+	["Aquanaut"] = {245000, "Brainrot God", "e/e4/Aquanaut_Brainrot.png"},
+	["Cacasito Satalito"] = {240000, "Brainrot God", "5/58/Cacasito_Satalito_Brainrot.png"},
+	["Orcalita Orcala"] = {240000, "Brainrot God", "6/67/Orcalita_Orcala_Brainrot.png"},
+	["Los Orcalitos"] = {235000, "Brainrot God", "0/0f/Los_Orcalitos_Brainrot.png"},
+	["Crabbo Limonetta"] = {235000, "Brainrot God", "d/d8/Crabbo_Limonetta_Brainrot.png"},
+	["Tractoro Dinosauro"] = {230000, "Brainrot God", "c/cf/Tractoro_Dinosauro_Brainrot.png"},
+	["Brr es Teh Patipum"] = {225000, "Brainrot God", "0/09/Brr_es_Teh_Patipum_Brainrot.png"},
+	["Pakrahmatmatina"] = {225000, "Brainrot God", "1/1d/Pakrahmatmatina_Brainrot.png"},
+	["Bombardini Tortinii"] = {225000, "Brainrot God", "5/51/Bombardini_Tortinii_Brainrot.png"},
+	["Piccione Macchina"] = {225000, "Brainrot God", "b/b1/Piccione_Macchina_Brainrot.png"},
+	["Los Bombinitos"] = {220000, "Brainrot God", "6/65/Los_Bombinitos_Brainrot.png"},
+	["Ballerina Peppermintina"] = {215000, "Brainrot God", "7/78/Ballerina_Peppermintina_Brainrot.png"},
+	["Pakrahmatmamat"] = {215000, "Brainrot God", "d/d5/Pakrahmatmamat_Brainrot.png"},
+	["Los Tungtungtungcitos"] = {210000, "Brainrot God", "c/c6/Los_Tungtungtungcitos_Brainrot.png"},
+	["Bulbito Bandito Traktorito"] = {205000, "Brainrot God", "0/06/Bulbito_Bandito_Traktorito_Brainrot.png"},
+	["Ballerino Lololo"] = {200000, "Brainrot God", "1/1c/Ballerino_Lololo_Brainrot.png"},
+	["Koala Parabala"] = {200000, "Brainrot God", "e/e7/Koala_Parabala_Brainrot.png"},
+	["Pineaplino"] = {200000, "Brainrot God", "5/5e/Pineaplino_Brainrot.png"},
+	["Vampi Ribbitini"] = {185000, "Brainrot God", "c/c2/Vampi_Ribbitini_Brainrot.png"},
+	["Las Capuchinas"] = {185000, "Brainrot God", "d/de/Las_Capuchinas_Brainrot.png"},
+	["Sundrilla Sundae"] = {180000, "Brainrot God", "9/91/Sundrilla_Sundae_Brainrot.png"},
+	["Trippi Troppi Troppa Trippa"] = {175000, "Brainrot God", "f/f6/Trippi_Troppi_Troppa_Trippa_Brainrot.png"},
+	["Gattito Tacoto"] = {165000, "Brainrot God", "a/ae/Gattito_Tacoto_Brainrot.png"},
+	["Los Chihuaninis"] = {160000, "Brainrot God", "5/58/Los_Chihuaninis_Brainrot.png"},
+	["Divino Platypio"] = {160000, "Brainrot God", "7/7e/Divino_Platypio_Brainrot.png"},
+	["Capi Taco"] = {155000, "Brainrot God", "a/af/Capi_Taco_Brainrot.png"},
+	["Trenostruzzo Turbo 3000"] = {150000, "Brainrot God", "d/df/Trenostruzzo_Turbo_3000_Brainrot.png"},
+	["Urubini Flamenguini"] = {150000, "Brainrot God", "d/d9/Urubini_Flamenguini_Brainrot.png"},
+	["Jacko Jack Jack"] = {150000, "Brainrot God", "8/87/Jacko_Jack_Jack_Brainrot.png"},
+	["Vampira Cappucina"] = {125000, "Brainrot God", "8/8a/Vampira_Cappucina_Brainrot.png"},
+	["Extinct Ballerina"] = {125000, "Brainrot God", "c/cc/Extinct_Ballerina_Brainrot.png"},
+	["Orcalero Orcala"] = {100000, "Brainrot God", "6/6f/Orcalero_Orcala_Brainrot.png"},
+	["Tralalita Tralala"] = {100000, "Brainrot God", "6/6e/Tralalita_Tralala_Brainrot.png"},
+	["Tukanno Bananno"] = {100000, "Brainrot God", "b/b6/Tukanno_Bananno_Brainrot.png"},
+	["Alessio"] = {85000, "Brainrot God", "1/1a/Alessio_Brainrot.png"},
+	["Odin Din Din Dun"] = {75000, "Brainrot God", "5/51/Odin_Din_Din_Dun_Brainrot.png"},
+	["Tipi Topi Taco"] = {75000, "Brainrot God", "3/33/Tipi_Topi_Taco_Brainrot.png"},
+	["Unclito Samito"] = {75000, "Brainrot God", "8/84/Unclito_Samito_Brainrot.png"},
+	["Espresso Signora"] = {70000, "Brainrot God", "9/98/Espresso_Signora_Brainrot.png"},
+	["Money Money Man"] = {65000, "Brainrot God", "b/ba/Money_Money_Man_Brainrot.png"},
+	["Tigroligre Frutonni"] = {60000, "Brainrot God", "4/40/Tigroligre_Frutonni_Brainrot.png"},
+	["Los Crocodillitos"] = {55000, "Brainrot God", "f/fc/Los_Crocodillitos_Brainrot.png"},
+	["Matteo"] = {50000, "Brainrot God", "8/84/Matteo_Brainrot.png"},
+	["Tralalero Tralala"] = {50000, "Brainrot God", "4/41/Tralalero_Tralala_Brainrot.png"},
+	["Chihuanini Taconini"] = {45000, "Brainrot God", "5/5c/Chihuanini_Taconini_Brainrot.png"},
+	["Gattatino Nyanino"] = {35000, "Brainrot God", "5/5f/Gattatino_Nyanino_Brainrot.png"},
+	["Girafa Celestre"] = {20000, "Brainrot God", "2/25/Girafa_Celestre_Brainrot.png"},
+	["Cocofanto Elefanto"] = {19000, "Brainrot God", "7/70/Cocofanto_Elefanto_Brainrot.png"},
+	["Tic Tic Ribbit"] = {18750, "Mythic", "b/be/Tic_Tic_Ribbit_Brainrot.png"},
+	["Bucketoro"] = {18250, "Mythic", "7/72/Bucketoro_Brainrot.png"},
+	["Berenjello Angello"] = {18000, "Mythic", "7/70/Berenjello_Angello_Brainrot.png"},
+	["Frostino Vampiro"] = {17500, "Mythic", "f/fe/Frostino_Vampiro_Brainrot.png"},
+	["Fizzy Soda"] = {17250, "Mythic", "0/04/Fizzy_Soda_Brainrot.png"},
+	["Tree Tree Tree Sahur"] = {17000, "Mythic", "c/cf/Tree_Tree_Tree_Sahur_Brainrot.png"},
+	["Bananito Bandito"] = {16500, "Mythic", "1/18/Bananito_Bandito_Brainrot.png"},
+	["Jacko Spaventosa"] = {16250, "Mythic", "1/18/Jacko_Spaventosa_Brainrot.png"},
+	["Toiletto Focaccino"] = {16000, "Mythic", "4/49/Toiletto_Focaccino_Brainrot.png"},
+	["Centrucci Nuclucci"] = {15500, "Mythic", "1/19/Centrucci_Nuclucci_Brainrot.png"},
+	["Carrotini Brainini"] = {15000, "Mythic", "3/3b/Carrotini_Brainini_Brainrot.png"},
+	["Cocoteddy"] = {15000, "Mythic", "d/d2/Cocoteddy_Brainrot.png"},
+	["Harpuccino"] = {14000, "Mythic", "5/58/Harpuccino_Brainrot.png"},
+	["Carloo"] = {13500, "Mythic", "7/76/Carloo_Brainrot.png"},
+	["Bee Loco"] = {13500, "Mythic", "0/01/Bee_Loco_Brainrot.png"},
+	["Spongini Quackini"] = {13000, "Mythic", "a/a9/Spongini_Quackini_Brainrot.png"},
+	["Cachorrito Melonito"] = {13000, "Mythic", "e/ef/Cachorrito_Melonito_Brainrot.png"},
+	["Los Noobinis"] = {12500, "Mythic", "3/3b/Los_Noobinis_Brainrot.png"},
+	["Jingle Jingle Sahur"] = {12250, "Mythic", "4/46/Jingle_Jingle_Sahur_Brainrot.png"},
+	["Tracoducotulu Delapeladustuz"] = {12000, "Mythic", "3/38/Tracoducotulu_Delapeladustuz_Brainrot.png"},
+	["Magi Ribbitini"] = {11500, "Mythic", "5/54/Magi_Ribbitini_Brainrot.png"},
+	["Rhino Helicopterino"] = {11000, "Mythic", "5/59/Rhino_Helicopterino_Brainrot.png"},
+	["Te Te Te Sahur"] = {9500, "Mythic", "6/68/Te_Te_Te_Sahur_Brainrot.png"},
+	["Ganganzelli Trulala"] = {9000, "Mythic", "9/99/Ganganzelli_Trulala_Brainrot.png"},
+	["Lerulerulerule"] = {8750, "Mythic", "6/6f/Lerulerulerule_Brainrot.png"},
+	["Tob Tobi Tobi"] = {8500, "Mythic", "2/27/Tob_Tobi_Tobi_Brainrot.png"},
+	["Gorillo Watermelondrillo"] = {8000, "Mythic", "1/19/Gorillo_Watermelondrillo_Brainrot.png"},
+	["Stoppo Luminino"] = {8000, "Mythic", "2/23/Stoppo_Luminino_Brainrot.png"},
+	["Cavallo Virtuoso"] = {7500, "Mythic", "4/4c/Cavallo_Virtuoso_Brainrot.png"},
+	["Avocadorilla"] = {7000, "Mythic", "7/73/Avocadorilla_Brainrot.png"},
+	["Tigrilini Watermelini"] = {6500, "Mythic", "e/e5/Tigrilini_Watermelini_Brainrot.png"},
+	["Zibra Zubra Zibralini"] = {6000, "Mythic", "d/d4/Zibra_Zubra_Zibralini_Brainrot.png"},
+	["Bombombini Gusini"] = {5000, "Mythic", "8/81/Bombombini_Gusini_Brainrot.png"},
+	["Spioniro Golubiro"] = {3500, "Mythic", "7/70/Spioniro_Golubiro_Brainrot.png"},
+	["Brutto Gialutto"] = {3000, "Mythic", "c/c9/Brutto_Gialutto_Brainrot.png"},
+	["Bombardiro Crocodilo"] = {2500, "Mythic", "4/4f/Bombardiro_Crocodilo_Brainrot.png"},
+	["Rhino Toasterino"] = {2150, "Mythic", "4/4e/Rhino_Toasterino_Brainrot.png"},
+	["Orangutini Ananassini"] = {2100, "Mythic", "1/14/Orangutini_Ananassini_Brainrot.png"},
+	["Frigo Camelo"] = {2000, "Mythic", "7/7e/Frigo_Camelo_Brainrot.png"},
+	["Seraphino Gruyero"] = {1900, "Legendary", "b/b7/Seraphino_Gruyero_Brainrot.png"},
+	["Buho de Fuego"] = {1850, "Legendary", "b/ba/Buho_de_Fuego_Brainrot.png"},
+	["Electro Quacko"] = {1850, "Legendary", "d/d3/Electro_Quacko_Brainrot.png"},
+	["Sealo Regalo"] = {1825, "Legendary", "5/59/Sealo_Regalo_Brainrot.png"},
+	["Sigma Girl"] = {1800, "Legendary", "1/16/Sigma_Girl_Brainrot.png"},
+	["Puffaball"] = {1500, "Legendary", "b/b4/Puffaball_Brainrot.png"},
+	["Chocco Bunny"] = {1400, "Legendary", "b/b0/Chocco_Bunny_Brainrot.png"},
+	["Buho del Cielo"] = {1350, "Legendary", "0/03/Buho_del_Cielo_Brainrot.png"},
+	["Sigma Boy"] = {1350, "Legendary", "b/b8/Sigma_Boy_Brainrot.png"},
+	["Pi Pi Watermelon"] = {1300, "Legendary", "0/03/Pi_Pi_Watermelon_Brainrot.png"},
+	["Quackula"] = {1275, "Legendary", "0/0f/Quackula_Brainrot.png"},
+	["Pandaccini Bananini"] = {1250, "Legendary", "d/db/Pandaccini_Bananini_Brainrot.png"},
+	["Bandito Axolito"] = {1225, "Legendary", "c/cf/Bandito_Axolito_Brainrot.png"},
+	["Cocosini Mama"] = {1200, "Legendary", "0/00/Cocosini_Mama_Brainrot.png"},
+	["Strawberrelli Flamingelli"] = {1150, "Legendary", "9/97/Strawberrelli_Flamingelli_Brainrot.png"},
+	["Pipi Potato"] = {1100, "Legendary", "5/5e/Pipi_Potato_Brainrot.png"},
+	["Caramello Filtrello"] = {1050, "Legendary", "7/76/Caramello_Filtrello_Brainrot.png"},
+	["Clickerino Crabo"] = {1000, "Legendary", "6/62/Clickerino_Crabo_Brainrot.png"},
+	["Blueberrinni Octopusini"] = {1000, "Legendary", "c/c8/Blueberrinni_Octopusini_Brainrot.png"},
+	["Quivioli Ameleonni"] = {900, "Legendary", "9/96/Quivioli_Ameleonni_Brainrot.png"},
+	["Glorbo Fruttodrillo"] = {750, "Legendary", "3/39/Glorbo_Fruttodrillo_Brainrot.png"},
+	["Lionel Cactuseli"] = {650, "Legendary", "c/c9/Lionel_Cactuseli_Brainrot.png"},
+	["Chef Crabracadabra"] = {600, "Legendary", "b/bb/Chef_Crabracadabra_Brainrot.png"},
+	["Ballerina Cappuccina"] = {500, "Legendary", "a/ac/Ballerina_Cappuccina_Brainrot.png"},
+	["Mummio Rappitto"] = {325, "Epic", "5/50/Mummio_Rappitto_Brainrot.png"},
+	["Chimpanzini Bananini"] = {300, "Legendary", "5/55/Chimpanzini_Bananini_Brainrot.png"},
+	["Penguino Cocosino"] = {300, "Epic", "2/27/Penguino_Cocosino_Brainrot.png"},
+	["Wombo Rollo"] = {275, "Epic", "f/fa/Wombo_Rollo_Brainrot.png"},
+	["Penguin Tree"] = {270, "Epic", "a/a2/Penguin_Tree_Brainrot.png"},
+	["Doi Doi Do"] = {260, "Epic", "8/8f/Doi_Doi_Do_Brainrot.png"},
+	["Gato Celesto"] = {250, "Epic", "8/83/Gato_Celesto_Brainrot.png"},
+	["Salamino Penguino"] = {250, "Epic", "0/06/Salamino_Penguino_Brainrot.png"},
+	["Frogato Pirato"] = {240, "Epic", "a/a7/Frogato_Pirato_Brainrot.png"},
+	["Mangolini Parrocini"] = {235, "Epic", "1/18/Mangolini_Parrocini_Brainrot.png"},
+	["Penguino Pumpkino"] = {235, "Epic", "f/f4/Penguino_Pumpkino_Brainrot.png"},
+	["Avocadini Guffo"] = {225, "Epic", "7/75/Avocadini_Guffo_Brainrot.png"},
+	["Ti Ti Ti Sahur"] = {225, "Epic", "c/c5/Ti_Ti_Ti_Sahur_Brainrot.png"},
+	["Burbaloni Loliloli"] = {200, "Legendary", "8/86/Burbaloni_Loliloli_Brainrot.png"},
+	["Brri Brri Bicus Dicus Bombicus"] = {175, "Epic", "f/fb/Brri_Brri_Bicus_Dicus_Bombicus_Brainrot.png"},
+	["Perochello Lemonchello"] = {160, "Epic", "c/ca/Perochello_Lemonchello_Brainrot.png"},
+	["Bananita Dolphinita"] = {150, "Epic", "4/4f/Bananita_Dolphinita_Brainrot.png"},
+	["Malame Amarele"] = {140, "Epic", "f/f2/Malame_Amarele_Brainrot.png"},
+	["Bambini Crostini"] = {135, "Epic", "6/6a/Bambini_Crostini_Brainrot.png"},
+	["Trulimero Trulicina"] = {125, "Epic", "6/6d/Trulimero_Trulicina_Brainrot.png"},
+	["Avocadini Antilopini"] = {115, "Epic", "3/3d/Avocadini_Antilopini_Brainrot.png"},
+	["Brr Brr Patapim"] = {100, "Epic", "2/24/Brr_Brr_Patapim_Brainrot.png"},
+	["Cappuccino Assassino"] = {75, "Epic", "2/21/Cappuccino_Assassino_Brainrot.png"},
+	["Pinealotto Fruttarino"] = {75, "Rare", "e/e1/Pinealotto_Fruttarino_Brainrot.png"},
+	["Pengolino Nuvoletto"] = {72, "Rare", "6/6e/Pengolino_Nuvoletto_Brainrot.png"},
+	["Pipi Avocado"] = {70, "Rare", "7/76/Pipi_Avocado_Brainrot.png"},
+	["Frogo Elfo"] = {67, "Rare", "2/2b/Frogo_Elfo_Brainrot.png"},
+	["Tric Trac Baraboom"] = {65, "Rare", "a/a7/Tric_Trac_Baraboom_Brainrot.png"},
+	["Cupcake Koala"] = {60, "Rare", "5/53/Cupcake_Koala_Brainrot.png"},
+	["Ta Ta Ta Ta Sahur"] = {55, "Rare", "3/36/Ta_Ta_Ta_Ta_Sahur_Brainrot.png"},
+	["Cacto Hipopotamo"] = {50, "Rare", "7/7e/Cacto_Hipopotamo_Brainrot.png"},
+	["Boneca Ambalabu"] = {40, "Rare", "3/31/Boneca_Ambalabu_Brainrot.png"},
+	["Bandito Bobritto"] = {35, "Rare", "1/18/Bandito_Bobritto_Brainrot.png"},
+	["Gangster Footera"] = {30, "Rare", "3/31/Gangster_Footera_Brainrot.png"},
+	["Trippi Troppi"] = {15, "Rare", "4/43/Trippi_Troppi_Brainrot.png"},
+	["Holy Arepa"] = {14, "Common", "3/3d/Holy_Arepa_Brainrot.png"},
+	["Pipi Corni"] = {14, "Common", "4/40/Pipi_Corni_Brainrot.png"},
+	["Pipi Kiwi"] = {13, "Common", "d/d8/Pipi_Kiwi_Brainrot.png"},
+	["Tartaragno"] = {13, "Common", "4/4f/Tartaragno_Brainrot.png"},
+	["Raccooni Jandelini"] = {12, "Common", "d/d1/Raccooni_Jandelini_Brainrot.png"},
+	["Noobini Santanini"] = {11, "Common", "0/0e/Noobini_Santanini_Brainrot.png"},
+	["Svinina Bombardino"] = {10, "Common", "5/57/Svinina_Bombardino_Brainrot.png"},
+	["Talpa Di Fero"] = {9, "Common", "1/13/Talpa_Di_Fero_Brainrot.png"},
+	["Fluriflura"] = {7, "Common", "a/a5/Fluriflura_Brainrot.png"},
+	["Tim Cheese"] = {5, "Common", "2/22/Tim_Cheese_Brainrot.png"},
+	["Lirilì Larilà"] = {3, "Common", "4/47/Lirilì_Larilà_Brainrot.png"},
+	["Noobini Pizzanini"] = {1, "Common", "8/8f/Noobini_Pizzanini_Brainrot.png"},
+	["To to to Sahur Egg"] = {0, "Secret", "4/44/To_to_to_Sahur_Egg_Brainrot.png"},
+	["Los Lucky Blocks"] = {0, "Admin", "c/c5/Los_Lucky_Blocks_Brainrot.png"},
+	["Tartaruga Cisterna Egg"] = {0, "Brainrot God", "f/ff/Tartaruga_Cisterna_Egg_Brainrot.png"},
+	["Zebrino Pianino Egg"] = {0, "Secret", "7/7c/Zebrino_Pianino_Egg_Brainrot.png"},
+	["Hydra Bunny Egg"] = {0, "Easter", "d/de/Hydra_Bunny_Egg_Brainrot.png"},
+	["Chicleteira Bicicleteira Egg"] = {0, "Secret", "8/81/Chicleteira_Bicicleteira_Egg_Brainrot.png"},
+	["Premium Festive Lucky Block"] = {0, "Festive", "6/6e/Premium_Festive_Lucky_Block_Brainrot.png"},
+	["Craburger Egg"] = {0, "Secret", "4/43/Craburger_Egg_Brainrot.png"},
+	["Baskito Egg"] = {0, "Easter", "f/fb/Baskito_Egg_Brainrot.png"},
+	["Noo my Eggs Egg"] = {0, "Easter", "b/b0/Noo_my_Eggs_Egg_Brainrot.png"},
+	["Chill Puppy Egg"] = {0, "Secret", "b/b7/Chill_Puppy_Egg_Brainrot.png"},
+	["Bunny Bunny Bunny Sahur Egg"] = {0, "Easter", "d/d4/Bunny_Bunny_Bunny_Sahur_Egg_Brainrot.png"},
+	["Easter Easter Easter Sahur Egg"] = {0, "Easter", "0/0f/Easter_Easter_Easter_Sahur_Egg_Brainrot.png"},
+	["Draculino Egg"] = {0, "Secret", "c/ce/Draculino_Egg_Brainrot.png"},
+	["Mythic Lucky Block"] = {0, "Mythic", "3/34/Mythic_Lucky_Block_Brainrot.png"},
+	["Bunny Tralala Egg"] = {0, "Easter", "3/35/Bunny_Tralala_Egg_Brainrot.png"},
+	["Los Taco Blocks"] = {0, "Taco", "1/1d/Los_Taco_Blocks_Brainrot.png"},
+	["Churrito Bunnito Egg"] = {0, "Easter", "0/04/Churrito_Bunnito_Egg_Brainrot.png"},
+	["Taco Lucky Block"] = {0, "Taco", "f/f4/Taco_Lucky_Block_Brainrot.png"},
+	["Hopilikalika Hopilikalako Egg"] = {0, "Easter", "7/72/Hopilikalika_Hopilikalako_Egg_Brainrot.png"},
+	["Wheelchair Granny"] = {0, "Secret", "5/5a/Wheelchair_Granny_Brainrot.png"},
+	["Gold Elf"] = {0, "Secret", "9/9d/Gold_Elf_Brainrot.png"},
+	["Dragon Cannelloni Egg"] = {0, "Secret", "0/0b/Dragon_Cannelloni_Egg_Brainrot.png"},
+	["Lionello Casarello Egg"] = {0, "Secret", "a/a5/Lionello_Casarello_Egg_Brainrot.png"},
+	["Cupid Cupid Sahur Egg"] = {0, "Secret", "8/86/Cupid_Cupid_Sahur_Egg_Brainrot.png"},
+	["Capibaro Celestino Egg"] = {0, "Secret", "b/bc/Capibaro_Celestino_Egg_Brainrot.png"},
+	["Cerberus Egg"] = {0, "Secret", "9/9a/Cerberus_Egg_Brainrot.png"},
+	["Lavamanta Egg"] = {0, "Secret", "d/dd/Lavamanta_Egg_Brainrot.png"},
+	["Ranito Pepito Egg"] = {0, "Secret", "9/9a/Ranito_Pepito_Egg_Brainrot.png"},
+	["Capitano Moby Egg"] = {0, "Secret", "3/3a/Capitano_Moby_Egg_Brainrot.png"},
+	["Arcadopus Egg"] = {0, "Secret", "8/8e/Arcadopus_Egg_Brainrot.png"},
+	["Cavallo Virtuoso Egg"] = {0, "Mythic", "3/37/Cavallo_Virtuoso_Egg_Brainrot.png"},
+	["Marino Submarino Egg"] = {0, "Secret", "2/20/Marino_Submarino_Egg_Brainrot.png"},
+	["Fishboard Egg"] = {0, "Secret", "1/1c/Fishboard_Egg_Brainrot.png"},
+	["Pin Pin Pengu Egg"] = {0, "Secret", "6/6f/Pin_Pin_Pengu_Egg_Brainrot.png"},
+	["Sammyni Spyderini Egg"] = {0, "Secret", "0/0f/Sammyni_Spyderini_Egg_Brainrot.png"},
+	["Yetimatic Egg"] = {0, "Secret", "a/a8/Yetimatic_Egg_Brainrot.png"},
+	["Rockarino Rockara Egg"] = {0, "Secret", "2/2a/Rockarino_Rockara_Egg_Brainrot.png"},
+	["Ski Ski Skunki Egg"] = {0, "Secret", "2/29/Ski_Ski_Skunki_Egg_Brainrot.png"},
+	["Qamar Camelamp Egg"] = {0, "Secret", "e/e9/Qamar_Camelamp_Egg_Brainrot.png"},
+	["Frio Ninja Egg"] = {0, "Brainrot God", "9/98/Frio_Ninja_Egg_Brainrot.png"},
+	["Quackini Snackini Egg"] = {0, "Easter", "8/8d/Quackini_Snackini_Egg_Brainrot.png"},
+	["Rexino Ramino Egg"] = {0, "Secret", "7/7a/Rexino_Ramino_Egg_Brainrot.png"},
+	["Spooky Lucky Block"] = {0, "Spooky", "e/e1/Spooky_Lucky_Block_Brainrot.png"},
+	["Extinct Ballerina Egg"] = {0, "Brainrot God", "6/66/Extinct_Ballerina_Egg_Brainrot.png"},
+	["Graipuss Medussi Egg"] = {0, "Secret", "8/8c/Graipuss_Medussi_Egg_Brainrot.png"},
+	["Premium Skull Lucky Block"] = {0, "Skull", "b/b0/Premium_Skull_Lucky_Block_Brainrot.png"},
+	["Skull Lucky Block"] = {0, "Skull", "4/40/Skull_Lucky_Block_Brainrot.png"},
+	["Bee Lucky Block"] = {0, "Honey", "6/60/Bee_Lucky_Block_Brainrot.png"},
+	["Premium Octo Lucky Block"] = {0, "Summer", "f/f0/Premium_Octo_Lucky_Block_Brainrot.png"},
+	["Premium Egg Lucky Block"] = {0, "Easter", "d/de/Premium_Egg_Lucky_Block_Brainrot.png"},
+	["Octo Lucky Block"] = {0, "Summer", "b/b7/Octo_Lucky_Block_Brainrot.png"},
+	["Leprechaun Lucky Block"] = {0, "St Patrick's", "4/4b/Leprechaun_Lucky_Block_Brainrot.png"},
+	["Egg Lucky Block"] = {0, "Easter", "f/fc/Egg_Lucky_Block_Brainrot.png"},
+	["Premium Leprechaun Lucky Block"] = {0, "St Patrick's", "f/f2/Premium_Leprechaun_Lucky_Block_Brainrot.png"},
+	["Heart Lucky Block"] = {0, "Valentines", "f/f1/Heart_Lucky_Block_Brainrot.png"},
+	["Festive Lucky Block"] = {0, "Festive", "1/1f/Festive_Lucky_Block_Brainrot.png"},
+	["Secret Lucky Block"] = {0, "Secret", "5/59/Secret_Lucky_Block_Brainrot.png"},
+	["Brainrot God Lucky Block"] = {0, "Brainrot God", "c/ce/Brainrot_God_Lucky_Block_Brainrot.png"},
+	["Sir Mangus Egg"] = {0, "Secret", "8/8a/Sir_Mangus_Egg_Brainrot.png"},
+	["Gold Egg"] = {0, "Secret", "d/d5/Gold_Egg_Brainrot.png"},
+	["Buntteo Egg"] = {0, "Easter", "1/17/Buntteo_Egg_Brainrot.png"},
+	["Premium Heart Lucky Block"] = {0, "Valentines", "0/0c/Premium_Heart_Lucky_Block_Brainrot.png"},
+	["La Grande Combinasion Egg"] = {0, "Secret", "f/fa/La_Grande_Combinasion_Egg_Brainrot.png"},
+	["Los Bunitos Egg"] = {0, "Easter", "e/ee/Los_Bunitos_Egg_Brainrot.png"},
+	["Admin Lucky Block"] = {0, "Admin", "e/e4/Admin_Lucky_Block_Brainrot.png"},
+	["DJ Panda Egg"] = {0, "Secret", "6/65/DJ_Panda_Egg_Brainrot.png"},
+	["Swag Soda Egg"] = {0, "Secret", "1/14/Swag_Soda_Egg_Brainrot.png"},
+	["Burrito Bat Egg"] = {0, "Secret", "a/a1/Burrito_Bat_Egg_Brainrot.png"},
+	["Eggdin Egg Egg Dun Egg"] = {0, "Easter", "b/b5/Eggdin_Egg_Egg_Dun_Egg_Brainrot.png"},
+	["Premium Bee Lucky Block"] = {0, "Honey", "0/07/Premium_Bee_Lucky_Block_Brainrot.png"},
+}
+
+local MUTATION_MODIFIERS = {
+	Gold = 0.25, Diamond = 0.5, Bloodrot = 1, Rainbow = 9, Candy = 3, Lava = 5, Galaxy = 6,
+	YinYang = 6.5, Radioactive = 7.5, Cursed = 8, Divine = 9, Cyber = 10, Phantom = 11,
+	Crystal = 12, Eclipse = 12.5,
+}
+
+local TRAIT_MODIFIERS = {
+	["Ball"] = 5,
+	["Taco"] = 2.5,
+	["Burger"] = 4.5,
+	["Job Application"] = 4,
+	["Raining Money"] = 5,
+	["Nyan"] = 5,
+	["Galactic"] = 3,
+	["Fireworks"] = 5,
+	["Zombie"] = 4,
+	["Claws"] = 4,
+	["Glitched"] = 4,
+	["Bubblegum"] = 3,
+	["Fire"] = 5,
+	["Wet"] = 1.5,
+	["Snowy"] = 2,
+	["Cometstruck"] = 2.5,
+	["Explosive"] = 3,
+	["Disco"] = 4,
+	["10B"] = 3,
+	["Shark Fin"] = 3,
+	["Matteo Hat"] = 3.5,
+	["Brazil"] = 5,
+	["Sleepy"] = 0,
+	["Lightning"] = 5,
+	["UFO"] = 2,
+	["Spider"] = 3.5,
+	["Strawberry"] = 9,
+	["Paint"] = 5,
+	["Skeleton"] = 3,
+	["Sombrero"] = 4,
+	["Tie"] = 3.75,
+	["Witch Hat"] = 3,
+	["Sun"] = 5,
+	["Indonesia"] = 4,
+	["Meowl"] = 8,
+	["RIP Gravestone"] = 3.5,
+	["Jackolantern Pet"] = 4.5,
+	["Santa Hat"] = 4,
+	["Reindeer Pet"] = 5,
+	["Skibidi"] = 6.5,
+	["26"] = 5,
+	["1 Year"] = 5.5,
+	["Rose"] = 5,
+	[":3"] = 4.5,
+	["Chocolate"] = 4.5,
+	["Halo"] = 5,
+	["Lucky"] = 5,
+	["Orange Balloon"] = 3,
+	["Green Balloon"] = 3.5,
+	["Blue Balloon"] = 4,
+	["Red Balloon"] = 5,
+	["Pink Balloon"] = 5.5,
+	["Rainbow Balloon"] = 6.5,
+	["Granny"] = 5.5,
+	["Spooky Skeleton"] = 4.5,
+	["Vampire Skeleton"] = 5.5,
+	["Witch Skeleton"] = 5.5,
+	["Bunny Ears"] = 4.5,
+	["Orange Egg"] = 3,
+	["Green Egg"] = 4,
+	["Blue Egg"] = 5,
+	["Pink Egg"] = 6.5,
+	["John Pork"] = 7,
+	["Aura Shades"] = 4.5,
+	["Algeria"] = 4.5,
+	["Argentina"] = 4.5,
+	["Australia"] = 4.5,
+	["Austria"] = 4.5,
+	["Belgium"] = 4.5,
+	["Bosnia and Herzegovina"] = 4.5,
+	["Canada"] = 4.5,
+	["Cape Verde"] = 4.5,
+	["Colombia"] = 4.5,
+	["Croatia"] = 4.5,
+	["Curacao"] = 4.5,
+	["Czechia"] = 4.5,
+	["DR Congo"] = 4.5,
+	["Ecuador"] = 4.5,
+	["Egypt"] = 4.5,
+	["England"] = 4.5,
+	["France"] = 4.5,
+	["Germany"] = 4.5,
+	["Ghana"] = 4.5,
+	["Haiti"] = 4.5,
+	["Iran"] = 4.5,
+	["Iraq"] = 4.5,
+	["Ivory Coast"] = 4.5,
+	["Japan"] = 4.5,
+	["Jordan"] = 4.5,
+	["Mexico"] = 4.5,
+	["Morocco"] = 4.5,
+	["Netherlands"] = 4.5,
+	["New Zealand"] = 4.5,
+	["Norway"] = 4.5,
+	["Panama"] = 4.5,
+	["Paraguay"] = 4.5,
+	["Portugal"] = 4.5,
+	["Qatar"] = 4.5,
+	["Saudi Arabia"] = 4.5,
+	["Scotland"] = 4.5,
+	["Senegal"] = 4.5,
+	["South Africa"] = 4.5,
+	["South Korea"] = 4.5,
+	["Bull"] = 5,
+	["Spain"] = 4.5,
+	["Sweden"] = 4.5,
+	["Switzerland"] = 4.5,
+	["Tunisia"] = 4.5,
+	["Turkey"] = 4.5,
+	["United States"] = 4.5,
+	["Uruguay"] = 4.5,
+	["Uzbekistan"] = 4.5,
+	["Bee"] = 4,
+	["Fire Bee"] = 5,
+	["Ice Bee"] = 5,
+	["Queen Bee"] = 6,
+	["Bats"] = 5,
+}
+
+local RARITY_COLORS = {
+	Common = 0x9E9E9E, Rare = 0x2196F3, Epic = 0x9C27B0, Legendary = 0xFFC107,
+	Mythic = 0xF44336, ["Brainrot God"] = 0x00E5FF, Secret = 0x111111, OG = 0xFFD700,
+}
+
+-- ==========================================
+-- HELPERS
+-- ==========================================
+local function formatNumber(n)
+	n = tonumber(n) or 0
+	for _, unit in ipairs({{1e12, "T"}, {1e9, "B"}, {1e6, "M"}, {1e3, "K"}}) do
+		if n >= unit[1] then
+			return (string.format("%.2f", n / unit[1]):gsub("%.?0+$", "")) .. unit[2]
+		end
+	end
+	return tostring(math.floor(n))
+end
+
+-- Same formula as the game: base x (1 + mutation + traits), Sleepy halves it
+local function getGeneration(name, mutation, traits)
+	local data = BRAINROTS[name]
+	if not data then return nil end
+	local multiplier = 1 + (MUTATION_MODIFIERS[mutation] or 0)
+	local sleepy = false
+	for _, trait in ipairs(traits) do
+		if trait == "Sleepy" then sleepy = true
+		else multiplier = multiplier + (TRAIT_MODIFIERS[trait] or 0) end
+	end
+	local gen = data[1] * multiplier
+	if sleepy then gen = gen * 0.5 end
+	return math.floor(gen + 0.5)
+end
+
+local function splitTraits(value)
+	local traits = {}
+	if type(value) == "string" and value ~= "" then
+		for _, t in ipairs(string.split(value, "|")) do
+			if t ~= "" then table.insert(traits, t) end
+		end
+	end
+	return traits
+end
+
+local function getMyPlot()
+	local names = {string.lower(localPlayer.Name), string.lower(localPlayer.DisplayName)}
+	for _, plot in ipairs(Plots:GetChildren()) do
+		local sign = plot:FindFirstChild("PlotSign")
+		local label = sign and sign:FindFirstChild("SurfaceGui") and sign.SurfaceGui:FindFirstChild("Frame")
+			and sign.SurfaceGui.Frame:FindFirstChild("TextLabel")
+		local owner = label and string.match(label.Text, "^(.-)'s Base")
+		if owner then
+			owner = string.lower(owner)
+			if owner == names[1] or owner == names[2] then return plot end
+		end
+	end
+	return nil
+end
+
+local function countInPlot(plot, name)
+	local n = 0
+	if plot then
+		for _, child in ipairs(plot:GetChildren()) do
+			if child:IsA("Model") and child.Name == name then n = n + 1 end
+		end
+	end
+	return n
+end
+
+local function resolvePlayerName(value)
+	if typeof(value) == "Instance" and value:IsA("Player") then return value.Name end
+	if tonumber(value) then
+		local p = Players:GetPlayerByUserId(tonumber(value))
+		if p then return p.Name end
+		local ok, name = pcall(function() return Players:GetNameFromUserIdAsync(tonumber(value)) end)
+		return ok and name or tostring(value)
+	end
+	if type(value) == "string" and value ~= "" then return value end
+	return "Unknown"
+end
+
+-- Reads mutation/traits from the brainrot you're carrying
+local function readCarried(name)
+	local character = localPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local best, bestDist = nil, math.huge
+	for _, inst in ipairs(CollectionService:GetTagged("ClientRenderBrainrot")) do
+		if inst:GetAttribute("__render_brainrot") == name then
+			local d = 0
+			if root then
+				local ok, pos = pcall(function()
+					return inst:IsA("BasePart") and inst.Position or (inst:IsA("Model") and inst:GetPivot().Position)
+						or (inst.Parent and inst.Parent:IsA("BasePart") and inst.Parent.Position)
+				end)
+				d = (ok and pos) and (pos - root.Position).Magnitude or 1e6
+			end
+			if d < bestDist then best, bestDist = inst, d end
+		end
+	end
+	if not best then return nil, {} end
+	local mutation = best:GetAttribute("__render_mutation")
+	return (type(mutation) == "string" and mutation ~= "") and mutation or nil,
+		splitTraits(best:GetAttribute("__render_traits"))
+end
+
+-- ==========================================
+-- WIKI ICON
+-- ==========================================
+local WIKI = "https://stealabr.fandom.com/api.php"
+local iconCache = {}
+
+local function urlEncode(s)
+	return (string.gsub(s, "[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end))
+end
+
+local function apiGet(query)
+	local ok, res = pcall(req, {Url = WIKI .. "?" .. query .. "&format=json", Method = "GET"})
+	if not (ok and res and res.StatusCode == 200) then return nil end
+	local ok2, json = pcall(function() return HttpService:JSONDecode(res.Body) end)
+	return ok2 and json or nil
+end
+
+local function getIcon(name)
+	if iconCache[name] ~= nil then return iconCache[name] or nil end
+	local fileName = string.gsub(name, " ", "_") .. "_Brainrot.png"
+
+	-- 1. "<Name>_Brainrot.png" on the wiki
+	local json = apiGet("action=query&prop=imageinfo&iiprop=url&titles=" .. urlEncode("File:" .. fileName))
+	if json and json.query and json.query.pages then
+		for _, page in pairs(json.query.pages) do
+			if page.imageinfo and page.imageinfo[1] and page.imageinfo[1].url then
+				iconCache[name] = page.imageinfo[1].url
+				return iconCache[name]
+			end
+		end
+	end
+
+	-- 2. The main picture on the brainrot's wiki page
+	json = apiGet("action=query&prop=pageimages&piprop=original&redirects=1&titles=" .. urlEncode(name))
+	if json and json.query and json.query.pages then
+		for _, page in pairs(json.query.pages) do
+			if page.original and page.original.source then
+				iconCache[name] = page.original.source
+				return iconCache[name]
+			end
+		end
+	end
+
+	-- 3. Build the direct image link (works when the file follows the usual naming)
+	local data = BRAINROTS[name]
+	if data then
+		iconCache[name] = "https://static.wikia.nocookie.net/stealabr/images/" .. data[3]
+		return iconCache[name]
+	end
+	iconCache[name] = false
+	return nil
+end
+
+-- ==========================================
+-- WEBHOOK
+-- ==========================================
+local function sendWebhook(info)
+	local data = BRAINROTS[info.name]
+	local rarity = data and data[2] or "?"
+	local gen = getGeneration(info.name, info.mutation or "Normal", info.traits)
+	local icon = getIcon(info.name)
+
+	local embed = {
+		title = (info.success and "🧠 Stole " or "❌ Failed to steal ") .. info.name,
+		color = info.success and (RARITY_COLORS[rarity] or 0x5865F2) or 0xE74C3C,
+		fields = {
+			{name = "Mutation", value = info.mutation or "None", inline = true},
+			{name = "Rarity", value = rarity, inline = true},
+			{name = "Money", value = gen and ("$" .. formatNumber(gen) .. "/s") or "Unknown", inline = true},
+			{name = "Traits", value = #info.traits > 0 and table.concat(info.traits, ", ") or "None", inline = false},
+			{name = "Stolen from", value = info.victim or "Unknown", inline = true},
+			{name = "Took", value = string.format("%.1fs", info.duration or 0), inline = true},
+		},
+		footer = {text = localPlayer.Name},
+		timestamp = DateTime.now():ToIsoDate(),
+	}
+	if icon then embed.thumbnail = {url = icon} end
+
+	local ok, res = pcall(req, {
+		Url = WEBHOOK_URL,
+		Method = "POST",
+		Headers = {["Content-Type"] = "application/json"},
+		Body = HttpService:JSONEncode({username = "Steal Logger", embeds = {embed}}),
+	})
+	if not ok or (res and res.StatusCode and res.StatusCode >= 300) then
+		warn("[StealLogger] Webhook failed: " .. tostring(ok and res.StatusCode or res))
+	end
+end
+
+-- ==========================================
+-- STEAL DETECTION
+-- Your player gets a "StealingIndex" attribute (the brainrot's name) while
+-- carrying one. When it clears, the steal worked if that brainrot showed up in your base.
+-- ==========================================
+local current = nil -- the steal in progress
+
+local function onStealStart(name)
+	local myPlot = getMyPlot()
+	local mutation, traits = readCarried(name)
+	current = {
+		name = name,
+		victim = resolvePlayerName(localPlayer:GetAttribute("StealingPlayer")),
+		mutation = mutation,
+		traits = traits,
+		startedAt = os.clock(),
+		plot = myPlot,
+		countBefore = countInPlot(myPlot, name),
+	}
+	-- The carried model can take a moment to appear, so read it again shortly after
+	task.delay(0.5, function()
+		if current and current.name == name and not current.mutation and #current.traits == 0 then
+			local m, t = readCarried(name)
+			current.mutation = m or current.mutation
+			if #t > 0 then current.traits = t end
+		end
+	end)
+end
+
+local function onStealEnd()
+	local steal = current
+	current = nil
+	if not steal then return end
+	steal.duration = os.clock() - steal.startedAt
+	steal.plot = steal.plot or getMyPlot()
+
+	task.spawn(function()
+		local plot = steal.plot
+		local deadline = os.clock() + ARRIVAL_TIMEOUT
+		local newModel = nil
+		while os.clock() < deadline do
+			if countInPlot(plot, steal.name) > steal.countBefore then
+				-- Find the copy that just arrived (the one whose mutation matches, or any)
+				for _, child in ipairs(plot:GetChildren()) do
+					if child:IsA("Model") and child.Name == steal.name then
+						local m = child:GetAttribute("__mutation")
+						if not newModel or (steal.mutation and m == steal.mutation) then newModel = child end
+					end
+				end
+				break
+			end
+			task.wait(0.1)
+		end
+
+		steal.success = newModel ~= nil
+		if newModel then
+			local m = newModel:GetAttribute("__mutation") or newModel:GetAttribute("Mutation")
+			if type(m) == "string" and m ~= "" then steal.mutation = m end
+		end
+		if steal.success or LOG_FAILED_STEALS then
+			print(string.format("[StealLogger] %s %s (%s)", steal.success and "Stole" or "Failed", steal.name, steal.mutation or "None"))
+			sendWebhook(steal)
+		end
+	end)
+end
+
+localPlayer:GetAttributeChangedSignal("StealingIndex"):Connect(function()
+	local name = localPlayer:GetAttribute("StealingIndex")
+	if type(name) == "string" and name ~= "" then
+		if current and current.name ~= name then onStealEnd() end
+		onStealStart(name)
+	else
+		onStealEnd()
+	end
+end)
+
+-- In case the script was started mid-steal
+do
+	local name = localPlayer:GetAttribute("StealingIndex")
+	if type(name) == "string" and name ~= "" then onStealStart(name) end
+end
+
+print("[StealLogger] Running")
+end)
