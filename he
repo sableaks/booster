@@ -1,23 +1,279 @@
+-- ==========================================
+-- TRADE END DETECTOR (with on-screen status)
+-- Shows whether a trade was completed, cancelled, or cancelled because
+-- the other player left. No remotes, no game modules.
+-- ==========================================
+if not game:IsLoaded() then game.Loaded:Wait() end
+
 local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
-local player = Players.LocalPlayer
-local placeId = game.PlaceId
-local jobId = game.JobId
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+local window = playerGui:WaitForChild("TradeLiveTrade"):WaitForChild("TradeLiveTrade")
 
-local attempts = 0
-local maxAttempts = 5
+local CLOSE_GRACE = 2 -- seconds to wait for the "completed" notification after the window closes
+local GUI_NAME = "TradeEndDetectorUI"
 
-TeleportService.TeleportInitFailed:Connect(function(plr, result, err)
-	if plr ~= player then return end
-	attempts += 1
-	if attempts < maxAttempts then
-		warn("Rejoin failed (" .. tostring(err) .. "), retrying...")
-		task.wait(2)
-		TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
-	else
-		warn("Rejoin failed after " .. maxAttempts .. " tries, staying in current server.")
+-- Set this to the username you're trading with (your autobuy can set it when it accepts the prompt)
+local env = (getgenv and getgenv()) or _G
+env.TradePartner = env.TradePartner
+
+local tradeOpenedAt = nil
+local completedAt = -1
+local partnerLeftAt = -1
+
+-- ==========================================
+-- STATUS UI (middle of the screen)
+-- ==========================================
+local targetParent = (typeof(gethui) == "function" and gethui()) or CoreGui
+if not pcall(function() local x = Instance.new("ScreenGui", targetParent) x:Destroy() end) then
+	targetParent = playerGui
+end
+if targetParent:FindFirstChild(GUI_NAME) then targetParent[GUI_NAME]:Destroy() end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = GUI_NAME
+screen.ResetOnSpawn = false
+screen.IgnoreGuiInset = true
+screen.DisplayOrder = 9999999
+screen.Parent = targetParent
+
+local panel = Instance.new("Frame")
+panel.AnchorPoint = Vector2.new(0.5, 0.5)
+panel.Position = UDim2.fromScale(0.5, 0.5)
+panel.Size = UDim2.new(0, 340, 0, 168)
+panel.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+panel.BackgroundTransparency = 0.1
+panel.BorderSizePixel = 0
+panel.Parent = screen
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+local panelStroke = Instance.new("UIStroke", panel)
+panelStroke.Color = Color3.fromRGB(80, 80, 100)
+panelStroke.Thickness = 1.5
+
+local header = Instance.new("TextLabel")
+header.BackgroundTransparency = 1
+header.Size = UDim2.new(1, -40, 0, 26)
+header.Position = UDim2.new(0, 12, 0, 4)
+header.Font = Enum.Font.GothamBold
+header.TextSize = 13
+header.TextColor3 = Color3.fromRGB(160, 160, 175)
+header.TextXAlignment = Enum.TextXAlignment.Left
+header.Text = "Trade detector"
+header.Parent = panel
+
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.new(0, 24, 0, 20)
+hideBtn.Position = UDim2.new(1, -30, 0, 7)
+hideBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 68)
+hideBtn.TextColor3 = Color3.new(1, 1, 1)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 12
+hideBtn.Text = "–"
+hideBtn.Parent = panel
+Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 5)
+
+local stateLabel = Instance.new("TextLabel")
+stateLabel.BackgroundTransparency = 1
+stateLabel.Size = UDim2.new(1, -24, 0, 36)
+stateLabel.Position = UDim2.new(0, 12, 0, 30)
+stateLabel.Font = Enum.Font.GothamBlack
+stateLabel.TextSize = 22
+stateLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+stateLabel.TextXAlignment = Enum.TextXAlignment.Left
+stateLabel.TextScaled = false
+stateLabel.Text = "⏸ Idle"
+stateLabel.Parent = panel
+
+local logFrame = Instance.new("Frame")
+logFrame.BackgroundTransparency = 1
+logFrame.Size = UDim2.new(1, -24, 1, -76)
+logFrame.Position = UDim2.new(0, 12, 0, 70)
+logFrame.Parent = panel
+local logLayout = Instance.new("UIListLayout", logFrame)
+logLayout.SortOrder = Enum.SortOrder.LayoutOrder
+logLayout.Padding = UDim.new(0, 2)
+
+local MAX_LOG = 5
+local logOrder = 0
+
+local function log(text, color)
+	logOrder = logOrder + 1
+	local line = Instance.new("TextLabel")
+	line.BackgroundTransparency = 1
+	line.Size = UDim2.new(1, 0, 0, 16)
+	line.Font = Enum.Font.Gotham
+	line.TextSize = 12
+	line.TextColor3 = color or Color3.fromRGB(190, 190, 200)
+	line.TextXAlignment = Enum.TextXAlignment.Left
+	line.TextTruncate = Enum.TextTruncate.AtEnd
+	line.Text = os.date("%H:%M:%S") .. "  " .. text
+	line.LayoutOrder = -logOrder -- newest on top
+	line.Parent = logFrame
+
+	local lines = {}
+	for _, l in ipairs(logFrame:GetChildren()) do
+		if l:IsA("TextLabel") then table.insert(lines, l) end
+	end
+	table.sort(lines, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+	for i = MAX_LOG + 1, #lines do lines[i]:Destroy() end
+end
+
+local STATE_COLORS = {
+	idle = Color3.fromRGB(200, 200, 210),
+	open = Color3.fromRGB(110, 170, 255),
+	waiting = Color3.fromRGB(255, 200, 80),
+	completed = Color3.fromRGB(100, 230, 130),
+	cancelled = Color3.fromRGB(255, 95, 95),
+	player_left = Color3.fromRGB(255, 140, 70),
+}
+
+local function setState(kind, text)
+	stateLabel.Text = text
+	stateLabel.TextColor3 = STATE_COLORS[kind] or STATE_COLORS.idle
+	panelStroke.Color = STATE_COLORS[kind] or Color3.fromRGB(80, 80, 100)
+end
+
+-- Minimise to just the header
+local minimized = false
+hideBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	stateLabel.Visible = not minimized
+	logFrame.Visible = not minimized
+	panel.Size = minimized and UDim2.new(0, 340, 0, 34) or UDim2.new(0, 340, 0, 168)
+	hideBtn.Text = minimized and "+" or "–"
+end)
+
+-- Drag by the header
+do
+	local dragging, dragStart, startPos
+	header.Active = true
+	header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging, dragStart, startPos = true, input.Position, panel.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end)
+end
+
+-- ==========================================
+-- DETECTION
+-- ==========================================
+local function stripTags(s)
+	return (string.gsub(s, "<[^>]->", ""))
+end
+
+local function checkText(label)
+	local plain = stripTags(label.Text)
+	local text = string.lower(plain)
+	if plain ~= "" and tradeOpenedAt then
+		log("🔔 " .. plain, Color3.fromRGB(150, 150, 165))
+	end
+	local partner = env.TradePartner
+	if string.find(text, "completed", 1, true)
+		and (not partner or string.find(text, string.lower(partner), 1, true)) then
+		completedAt = os.clock()
+	end
+end
+
+local function watchLabel(label)
+	if not label:IsA("TextLabel") or not label.Visible then return end
+	checkText(label)
+	label:GetPropertyChangedSignal("Text"):Connect(function() checkText(label) end)
+end
+
+-- Both places a notification can appear
+for _, guiName in ipairs({"Notification", "TopNotification"}) do
+	task.spawn(function()
+		local holder = playerGui:WaitForChild(guiName, 30)
+		holder = holder and holder:WaitForChild(guiName, 30)
+		if not holder then
+			log("⚠ " .. guiName .. " not found", Color3.fromRGB(255, 180, 80))
+			return
+		end
+		holder.ChildAdded:Connect(watchLabel)
+	end)
+end
+
+Players.PlayerRemoving:Connect(function(p)
+	local partner = env.TradePartner
+	if partner and string.lower(p.Name) == string.lower(partner) then
+		partnerLeftAt = os.clock()
+		log("🚪 " .. p.Name .. " left the game", STATE_COLORS.player_left)
 	end
 end)
 
-TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+local function onTradeEnded(result)
+	-- result = "completed", "cancelled" or "player_left"
+	if result == "completed" then
+		setState("completed", "✅ Trade completed")
+	elseif result == "player_left" then
+		setState("player_left", "🚪 Cancelled — player left")
+	else
+		setState("cancelled", "❌ Trade cancelled")
+	end
+	log("Result: " .. result, STATE_COLORS[result])
+
+	-- Tell your bot here, e.g.:
+	-- sendDiscordUpdate(activeTradeId, result, result == "completed")
+
+	task.delay(8, function()
+		if not tradeOpenedAt then setState("idle", "⏸ Idle") end
+	end)
+end
+
+window:GetPropertyChangedSignal("Visible"):Connect(function()
+	if window.Visible then
+		if not tradeOpenedAt then
+			tradeOpenedAt = os.clock()
+			local partner = env.TradePartner
+			setState("open", "🔄 Trade open" .. (partner and (" — " .. partner) or ""))
+			log("Trade window opened", STATE_COLORS.open)
+		end
+		return
+	end
+	if not tradeOpenedAt then return end
+	local openedAt = tradeOpenedAt
+
+	setState("waiting", "⏳ Window closed, checking…")
+	log("Window closed, waiting " .. CLOSE_GRACE .. "s for the result", STATE_COLORS.waiting)
+
+	-- Wait for the "completed" notification (or the window coming back)
+	local closedAt = os.clock()
+	while os.clock() - closedAt < CLOSE_GRACE and completedAt < openedAt do
+		task.wait(0.1)
+	end
+	if window.Visible then
+		setState("open", "🔄 Trade open")
+		log("Window reopened, trade still going", STATE_COLORS.open)
+		return
+	end
+
+	tradeOpenedAt = nil
+	if completedAt >= openedAt then
+		onTradeEnded("completed")
+	elseif partnerLeftAt >= openedAt then
+		onTradeEnded("player_left")
+	else
+		onTradeEnded("cancelled")
+	end
+end)
+
+-- In case the script starts while a trade is already open
+if window.Visible then
+	tradeOpenedAt = os.clock()
+	setState("open", "🔄 Trade open")
+	log("Trade was already open", STATE_COLORS.open)
+end
+
+log("Detector running", Color3.fromRGB(120, 200, 140))
