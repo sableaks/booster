@@ -31,6 +31,7 @@ local MAX_SLOTS = 10 -- Pings you to collect once this many items have been rece
 local ITEM_WAIT_TIMEOUT = 120 -- Cancels if no listed item is added within this many seconds
 local USE_MOUSE_CLICKS = true -- Set to false if you use an autoclicker at the same time
 local SEND_TRADES = true -- The bot sends the trade request to the customer
+local USE_KEYBOARD_FALLBACK = false -- If searching fails, briefly focus the search box (opens the keyboard)
 local ACCEPT_INCOMING_TRADES = true -- Also accept trade requests the customer sends
 local SEND_ACCEPT_TIMEOUT = 30 -- Seconds the customer has to accept a sent request
 local SEND_RETRY_DELAY = 20 -- Seconds before sending to the same customer again
@@ -976,22 +977,50 @@ local function sendTradeRequest(username)
 	local oldCard = findCard(list, username)
 	if oldCard then waitFor(6, function() return oldCard.Parent == nil end) end
 
-	-- Sets the text directly, so the phone keyboard never opens
-	searchBox.Text = username
-	local card = waitFor(0.7, function() return findCard(list, username) end)
-	if not card then
-		-- Act like Enter was pressed
-		if firesignal then
-			pcall(firesignal, searchBox.FocusLost, true)
-		elseif getconnections then
+	-- Runs the search box's own handlers, so the phone keyboard never opens
+	local function runHandlers(signal, ...)
+		local args = table.pack(...)
+		local ran = false
+		if getconnections then
 			pcall(function()
-				for _, conn in ipairs(getconnections(searchBox.FocusLost)) do
-					conn:Fire(true)
+				for _, conn in ipairs(getconnections(signal)) do
+					if conn.Function then
+						task.spawn(conn.Function, table.unpack(args, 1, args.n))
+					else
+						conn:Fire(table.unpack(args, 1, args.n))
+					end
+					ran = true
 				end
 			end)
 		end
+		if not ran and firesignal then
+			pcall(firesignal, signal, table.unpack(args, 1, args.n))
+		end
+	end
+
+	runHandlers(searchBox.Focused)
+	searchBox.Text = "" -- Makes sure the text actually changes
+	task.wait(0.05)
+	searchBox.Text = username
+	task.wait(0.1)
+	runHandlers(searchBox.FocusLost, true, FAKE_INPUT) -- Like pressing Enter
+	pcall(function() runHandlers(searchBox.ReturnPressedFromOnScreenKeyboard) end)
+
+	-- Close the keyboard if the game opened it
+	pcall(function()
+		if searchBox:IsFocused() then searchBox:ReleaseFocus(false) end
+	end)
+
+	local card = waitFor(4, function() return findCard(list, username) end)
+	if not card and USE_KEYBOARD_FALLBACK then
+		-- Last resort: focus the box for a moment (the keyboard may flash)
+		pcall(function() searchBox:CaptureFocus() end)
+		searchBox.Text = username
+		task.wait(0.1)
+		pcall(function() searchBox:ReleaseFocus(true) end)
 		card = waitFor(4, function() return findCard(list, username) end)
 	end
+	print("[AutoBuy] Search for " .. username .. ": " .. (card and "found" or "not found"))
 	if not card then return "not_found" end
 
 	local fill = card:FindFirstChild("Fill")
