@@ -772,38 +772,74 @@ local function getRealButton(yes)
 	return yes:FindFirstChildWhichIsA("GuiButton", true)
 end
 
-local function clickButton(btn, attempt)
-	if attempt % 2 == 1 or not USE_MOUSE_CLICKS then
-		-- Fire the button's signals directly
-		for _, signal in ipairs({btn.MouseButton1Down, btn.MouseButton1Click, btn.MouseButton1Up, btn.Activated}) do
-			if firesignal then
-				pcall(firesignal, signal)
-			elseif getconnections then
-				pcall(function()
-					for _, conn in ipairs(getconnections(signal)) do
-						conn:Fire()
-					end
-				end)
-			end
-		end
-		return
-	end
+-- Fake tap passed to the button's handlers, in case they read it
+local FAKE_INPUT = {
+	UserInputType = Enum.UserInputType.Touch,
+	UserInputState = Enum.UserInputState.End,
+	KeyCode = Enum.KeyCode.Unknown,
+	Position = Vector3.new(0, 0, 0),
+	Delta = Vector3.new(0, 0, 0),
+}
 
-	-- Calculate the real screen position
-	local screenGui = btn:FindFirstAncestorOfClass("ScreenGui")
-	local inset = GuiService:GetGuiInset()
-	local offsetY = (screenGui and screenGui.IgnoreGuiInset) and 0 or inset.Y
-	local center = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+local CLICK_SIGNALS = {"Activated", "MouseButton1Click"}
 
-	-- Executor mouse input
-	if mousemoveabs and mouse1press and mouse1release then
+-- Each method is a different way to press the button. None of them move the mouse except "mouse"
+local CLICK_METHODS = {"firesignal", "fire", "call", "mouse"}
+
+local function runClickMethod(btn, method)
+	if method == "mouse" then
+		if not (USE_MOUSE_CLICKS and mousemoveabs and mouse1press and mouse1release) then return false end
+		local screenGui = btn:FindFirstAncestorOfClass("ScreenGui")
+		local inset = GuiService:GetGuiInset()
+		local offsetY = (screenGui and screenGui.IgnoreGuiInset) and 0 or inset.Y
+		local center = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
 		mousemoveabs(center.X, center.Y + offsetY)
 		task.wait(0.3)
 		mouse1press()
 		task.wait(0.05)
 		mouse1release()
-	else
-		warn("[AutoBuy] Executor does not support mousemoveabs, mouse1press, or mouse1release!")
+		return true
+	end
+
+	if method == "firesignal" then
+		if not firesignal then return false end
+		for _, name in ipairs(CLICK_SIGNALS) do
+			if name == "Activated" then
+				pcall(firesignal, btn.Activated, FAKE_INPUT, 1)
+			else
+				pcall(firesignal, btn[name])
+			end
+		end
+		return true
+	end
+
+	if not getconnections then return false end
+	local ran = false
+	for _, name in ipairs(CLICK_SIGNALS) do
+		pcall(function()
+			for _, conn in ipairs(getconnections(btn[name])) do
+				if method == "fire" then
+					conn:Fire(FAKE_INPUT, 1)
+					ran = true
+				elseif method == "call" and conn.Function then
+					-- Runs the game's handler function directly
+					task.spawn(conn.Function, FAKE_INPUT, 1)
+					ran = true
+				end
+			end
+		end)
+	end
+	return ran
+end
+
+-- Used for spam clicking (Yes, Ready, Cancel): cycles through the methods
+local function clickButton(btn, attempt)
+	local method = CLICK_METHODS[((attempt - 1) % #CLICK_METHODS) + 1]
+	if not runClickMethod(btn, method) then
+		-- Method not supported, so use the first one that is
+		for _, fallback in ipairs(CLICK_METHODS) do
+			if runClickMethod(btn, fallback) then break end
+		end
 	end
 end
 
@@ -940,12 +976,22 @@ local function sendTradeRequest(username)
 	local oldCard = findCard(list, username)
 	if oldCard then waitFor(6, function() return oldCard.Parent == nil end) end
 
-	pcall(function() searchBox:CaptureFocus() end)
+	-- Sets the text directly, so the phone keyboard never opens
 	searchBox.Text = username
-	pcall(function() searchBox:ReleaseFocus(true) end)
-	if firesignal then pcall(firesignal, searchBox.FocusLost, true) end
-
-	local card = waitFor(4, function() return findCard(list, username) end)
+	local card = waitFor(0.7, function() return findCard(list, username) end)
+	if not card then
+		-- Act like Enter was pressed
+		if firesignal then
+			pcall(firesignal, searchBox.FocusLost, true)
+		elseif getconnections then
+			pcall(function()
+				for _, conn in ipairs(getconnections(searchBox.FocusLost)) do
+					conn:Fire(true)
+				end
+			end)
+		end
+		card = waitFor(4, function() return findCard(list, username) end)
+	end
 	if not card then return "not_found" end
 
 	local fill = card:FindFirstChild("Fill")
@@ -959,21 +1005,38 @@ local function sendTradeRequest(username)
 	local sendTxt = sendObject and sendObject:FindFirstChild("Txt", true)
 	if not (sendButton and sendTxt) then return "no_send_button" end
 
-	-- Click until it starts sending, without double-sending
-	for attempt = 1, 4 do
-		if sendTxt.Text ~= "SEND" or card.Parent == nil then break end
-		clickButton(sendButton, attempt)
-		waitFor(0.6, function() return sendTxt.Text ~= "SEND" end)
+	local function sendText()
+		return string.upper((string.gsub(sendTxt.Text, "%s", "")))
 	end
-	if card.Parent ~= nil and sendTxt.Text == "SEND" then return "click_failed" end
+	if sendText() ~= "SEND" then
+		warn("[AutoBuy] Send button says \"" .. sendTxt.Text .. "\" instead of SEND")
+		return "not_ready"
+	end
+
+	-- Try one method at a time and stop as soon as it starts sending, so it never sends twice
+	local started = false
+	for _, method in ipairs(CLICK_METHODS) do
+		if card.Parent == nil then break end
+		if runClickMethod(sendButton, method) then
+			print("[AutoBuy] Pressed SEND using " .. method)
+			if waitFor(1, function() return sendText() ~= "SEND" end) then
+				started = true
+				print("[AutoBuy] SEND worked with " .. method)
+				break
+			end
+		end
+	end
+	if not started then return "click_failed" end
 
 	-- Wait for the result
-	local result = waitFor(5, function()
+	local result = waitFor(6, function()
 		if card.Parent == nil then return "gone" end
-		if sendTxt.Text == "FAILED" then return "FAILED" end
-		if sendTxt.Text == "SEND" then return "SEND" end
+		local text = sendText()
+		if text == "FAILED" then return "FAILED" end
+		if text == "SEND" then return "SEND" end
 		return nil
 	end)
+	print("[AutoBuy] Send finished: " .. tostring(result))
 	if result == "FAILED" then return "failed" end
 	return "sent"
 end
@@ -994,6 +1057,7 @@ end
 local SEND_MESSAGES = {
 	not_found = "⚠️ Couldn't find `%s` in the trade menu. Check your Roblox username is correct and that you're in the game.",
 	failed = "⚠️ The trade request to `%s` failed. Trying again shortly.",
+	click_failed = "⚠️ The bot couldn't press SEND for `%s`. Trying again shortly.",
 	limit = "⚠️ Couldn't send a trade to `%s` after several tries. Please ask staff for help.",
 }
 
