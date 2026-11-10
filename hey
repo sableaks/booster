@@ -59,71 +59,128 @@ local CLOSE_GRACE = 4 -- Seconds to wait for the "completed" message after the w
 
 -- ==========================================
 -- ITEM PRICES (USD) - 0 means no price yet
--- $1 = 1 hour of key time
+-- $1 = HOURS_PER_DOLLAR hours of key time
 -- ==========================================
+local HOURS_PER_DOLLAR = 1.05 -- $1 = 1h 3m
+
 local ITEM_PRICES = {
-	["Lavadorito Spinito"] = 0.15,
+	["Lavadorito Spinito"] = 0.19,
 	["Ketchuru and Musturu"] = 0.20,
-	["Garama and Madundung"] = 0.54,
+	["Ventoliero Pavonero"] = 0.20,
+	["Los Tictacs"] = 0.23,
+	["Nachorilla"] = 0.31,
+	["Candini Fluffini"] = 0.39,
+	["Gold Gold Gold"] = 0.43,
+	["La Ginger Sekolah"] = 0.50,
+	["Garama and Madundung"] = 0.51,
+	["La Secret Combinasion"] = 0.54,
+	["Spooky Spooky Sahur"] = 0.54,
+	["Caylusaurus"] = 0.62,
+	["Los Spaghettis"] = 0.66,
+	["Cash or Card"] = 0.68,
+	["Orbi Mochi"] = 0.75,
+	["Steakini Fattini"] = 0.76,
+	["Boppin Bunny"] = 0.99,
+	["Money Money Bros"] = 1.00,
+	["Sammyni Fattini"] = 1.01,
+	["Jolly Jolly Sahur"] = 1.09,
+	["Festive 67"] = 1.15,
+	["Pizza and Ranch"] = 1.16,
+	["Pop Pop Petalini"] = 1.17,
+	["Cloverat Clapat"] = 1.18,
 	["Popcuru and Fizzuru"] = 1.25,
 	["Tralaledon"] = 1.25,
-	["Sammyni Fattini"] = 1.28,
-	["Burguro And Fryuro"] = 1.56,
-	["Fragrama and Chocrama"] = 1.71,
-	["La Food Combinasion"] = 1.73,
-	["Capitano Moby"] = 1.85,
-	["Cerberus"] = 1.96,
-	["Celestial Pegasus"] = 2.02,
-	["Spooky and Pumpky"] = 2.04,
-	["Cooki and Milki"] = 2.11,
-	["Los Amigos"] = 2.35,
-	["Reinito Sleighito"] = 2.52,
-	["Los Sekolahs"] = 3.51,
-	["Foxini Lanternini"] = 3.84,
-	["Rosey and Teddy"] = 4.66,
-	["La Casa Boo"] = 6.18,
-	["Ketupat Bros"] = 7.05,
-	["Duggy Bros"] = 7.05,
-	["Dragon Cannelloni"] = 8.62,
-	["Bunny and Eggy"] = 9.40,
-	["Hydra Dragon Cannelloni"] = 13.33,
-	["Ginger Gerat"] = 14.90,
-	["Hydra Bunny"] = 20.39,
-	["La Supreme Combinasion"] = 21.56,
-	["Digi Narwhal"] = 22.74,
-	["Fishino Clownino"] = 34.49,
-	["Phoenix"] = 53.31,
-	["Griffin"] = 54.01,
-	["Antonio"] = 56.38,
-	["Dragon Gingerini"] = 60.38,
-	["Love Love Bear"] = 70.53,
-	["Dragon Skeletonini"] = 90.58,
-	["Arcadragon"] = 94.10,
-	["Los Dragons"] = 94.10,
-	["Elefanto Frigo"] = 98.92,
-	["Skibidi Toilet"] = 155.27,
-	["Meowl"] = 164.60,
-	["John Pork"] = 172.42,
-	["Signore Carapace"] = 273.28,
-	["Strawberry Elephant"] = 376.41,
-	["Orchidox"] = 431.29,
-	["Plant Bros"] = 611.46,
-	["Polaroidini"] = 682.24,
-	["Headless Horseman"] = 705.76,
-
-	["Kalika Bros"] = 43.14,
-	["Dragon Aquanini"] = 61.57,
-	["Moby Bros"] = 21.17,
-	["Kraken"] = 21.80,
-	["Jelly Moby"] = 11.44,
-	["Cola Cat"] = 32.16,
-	["Tirilikalika Tirilikalako"] = 14.51,
-	["Pancake and Syrup"] = 10.81,
-	["Hydra Serpent"] = 5.09,
+	["Pretzo Robo"] = 1.41,
+	["S'more Serat"] = 1.41,
+	["Flying Dutchman"] = 1.43,
+	["Guest 666"] = 1.46,
+	["Burguro And Fryuro"] = 1.48,
+	["Capitano Moby"] = 1.55,
+	["Fragrama and Chocrama"] = 1.55,
+	["Gym Bros"] = 1.55,
+	["La Food Combinasion"] = 1.55,
+	["Hopilikalika Hopilikalako"] = 1.64,
+	["La Fuse Machine"] = 1.69,
+	["Cooki and Milki"] = 1.79,
+	["Quackini Snackini"] = 1.88,
+	["Celestial Pegasus"] = 1.92,
+	["Cerberus"] = 1.92,
+	["Los Amigos"] = 2.04,
+	["Spooky and Pumpky"] = 2.07,
+	["Los Hackers"] = 2.12,
+	["Reinito Sleighito"] = 2.30,
+	["Sammyni Spookyni"] = 2.34,
+	["Examen Bros"] = 2.43,
+	["La Craft Machine"] = 2.69,
+	["Fortunu and Cashuru"] = 2.70,
+	["Los Chillis"] = 2.74,
+	["Los Admins"] = 2.75,
+	["Sammyni Truckini"] = 2.83,
+	["Rico Dinero"] = 3.10,
+	["Rubiko and Kubiko"] = 3.34,
+	["Los Sekolahs"] = 3.49,
+	["Gold and Diamond"] = 3.53,
+	["La Breakfast Combinasion"] = 3.57,
+	["Capitano Americano"] = 3.84,
+	["Rubrikiko"] = 3.86,
+	["Foxini Lanternini"] = 4.05,
+	["Hydra Serpent"] = 4.51,
+	["Spooketti Tualetti"] = 4.62,
+	["Rosey and Teddy"] = 4.85,
+	["Bumbatron"] = 5.06,
+	["La Casa Boo"] = 6.12,
+	["Grabatron"] = 6.24,
+	["Gorillo Subwoofero"] = 6.27,
+	["Ketupat Bros"] = 6.99,
+	["Skelly and Coffy"] = 7.36,
+	["Duggy Bros"] = 7.45,
+	["Bearito Cabinito"] = 7.61,
+	["Puppetmaster"] = 7.73,
 	["Venuspino"] = 7.85,
-	["Grabatron"] = 5.80,
-	["Sammyni Cakini"] = 10.04,
-	["Los Secret Combinasionas"] = 13.33,
+	["Dragon Cannelloni"] = 9.28,
+	["Bunny and Eggy"] = 10.20,
+	["Pancake and Syrup"] = 10.58,
+	["Los Secret Combinasionas"] = 10.98,
+	["Jelly Moby"] = 11.76,
+	["Sammyni Cakini"] = 11.93,
+	["Hydra Dragon Cannelloni"] = 13.34,
+	["Medusini and Demonini"] = 13.34,
+	["Tirilikalika Tirilikalako"] = 13.70,
+	["Hydra Bunny"] = 17.27,
+	["Cobra Gelato"] = 18.06,
+	["Ginger Gerat"] = 18.06,
+	["Scarino Crowino"] = 18.83,
+	["Moby Bros"] = 21.19,
+	["La Supreme Combinasion"] = 21.82,
+	["Kraken"] = 22.69,
+	["Digi Narwhal"] = 23.54,
+	["Lionello Casarello"] = 26.68,
+	["Cola Cat"] = 28.17,
+	["Fishino Clownino"] = 34.49,
+	["Kalika Bros"] = 44.74,
+	["Phoenix"] = 50.94,
+	["Antonio"] = 56.38,
+	["Dragon Aquanini"] = 60.44,
+	["Griffin"] = 62.80,
+	["Dragon Gingerini"] = 66.49,
+	["Love Love Bear"] = 68.16,
+	["Skibidi Toilet"] = 86.35,
+	["Arcadragon"] = 87.14,
+	["Los Dragons"] = 88.71,
+	["Elefanto Frigo"] = 96.56,
+	["Dragon Skeletonini"] = 117.75,
+	["John Pork"] = 124.81,
+	["Meowl"] = 124.81,
+	["Arca Bros"] = 148.36,
+	["Orchidox"] = 179.77,
+	["Strawberry Elephant"] = 234.72,
+	["Signore Carapace"] = 270.84,
+	["Plant Bros"] = 588.78,
+	["Polaroidini"] = 722.19,
+	["Headless Horseman"] = 785.04,
+
+	-- No price yet
+	["Spyder Elephant"] = 0,
 }
 
 -- A trade worth this much or more gets a lifetime key
@@ -363,7 +420,12 @@ local MUTATION_MULTIPLIERS = {
 	Crystal = 3.17,
 	Eclipse = 4.58,
 }
-local TRAIT_BONUS = 0.045 -- +4.5% of the base price per trait
+local TRAIT_BONUS = 0.065 -- +6.5% of the base price for each trait
+-- Traits that change the price differently (lowercase names)
+local TRAIT_ADJUSTMENTS = {
+	taco = -0.10, -- -10% of the base price
+	crab = -0.10,
+}
 
 -- Reads the mutation from the 3D model inside the card
 local function getCardMutation(spacer)
@@ -391,9 +453,14 @@ local function getCardTraits(spacer)
 	return traits
 end
 
-local function getItemPrice(basePrice, mutation, traitCount)
+local function getItemPrice(basePrice, mutation, traits)
 	local multiplier = MUTATION_MULTIPLIERS[mutation] or 1
-	return basePrice * multiplier + basePrice * TRAIT_BONUS * traitCount
+	local traitTotal = 0
+	for _, trait in ipairs(traits) do
+		local adjustment = TRAIT_ADJUSTMENTS[string.lower(trait)]
+		traitTotal = traitTotal + (adjustment or TRAIT_BONUS)
+	end
+	return math.max(basePrice * multiplier + basePrice * traitTotal, 0)
 end
 
 local function scanTradeItems(otherFrame)
@@ -424,7 +491,7 @@ local function scanTradeItems(otherFrame)
 							traits = traits,
 							count = 0,
 							basePrice = entry.price,
-							price = roundCents(getItemPrice(entry.price, mutation, #traits)),
+							price = roundCents(getItemPrice(entry.price, mutation, traits)),
 						}
 						found[key] = item
 					end
@@ -438,7 +505,7 @@ local function scanTradeItems(otherFrame)
 
 	local parts = {}
 	for key, item in pairs(found) do
-		local unitPrice = getItemPrice(item.basePrice, item.mutation, #item.traits)
+		local unitPrice = getItemPrice(item.basePrice, item.mutation, item.traits)
 		table.insert(details.items, {
 			name = item.name,
 			mutation = item.mutation,
@@ -466,7 +533,7 @@ local function scanTradeItems(otherFrame)
 	if details.slotCount > 0 then table.insert(parts, "slots:" .. details.slotCount) end
 	details.totalValue = roundCents(details.totalValue)
 	details.isLifetime = details.totalValue >= LIFETIME_VALUE
-	details.keyMinutes = (not details.isLifetime) and math.floor(details.totalValue * 60 + 0.5) or nil
+	details.keyMinutes = (not details.isLifetime) and math.floor(details.totalValue * 60 * HOURS_PER_DOLLAR + 0.5) or nil
 	return details, table.concat(parts, "|")
 end
 
