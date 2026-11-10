@@ -29,7 +29,12 @@ local API_SECRET = "ceded2ea3bf75614c3e933b307ba486676c5c8be43f0652f"
 
 local MAX_SLOTS = 10 -- Pings you to collect once this many items have been received
 local ITEM_WAIT_TIMEOUT = 120 -- Cancels if no listed item is added within this many seconds
-local USE_MOUSE_CLICKS = false -- Set to false if you use an autoclicker at the same time
+local USE_MOUSE_CLICKS = true -- Set to false if you use an autoclicker at the same time
+local SEND_TRADES = true -- The bot sends the trade request to the customer
+local ACCEPT_INCOMING_TRADES = true -- Also accept trade requests the customer sends
+local SEND_ACCEPT_TIMEOUT = 30 -- Seconds the customer has to accept a sent request
+local SEND_RETRY_DELAY = 20 -- Seconds before sending to the same customer again
+local MAX_SEND_ATTEMPTS = 5 -- Stops sending to a customer after this many tries
 
 -- ==========================================
 -- ITEM PRICES (USD) - 0 means no price yet
@@ -204,6 +209,7 @@ local pendingTradeCount = 0
 
 local activeTradeFrames = {}
 local expectedUsers = {} -- [lower_roblox_username] = tradeId
+local pendingTrades = {} -- In the order the API sends them
 
 local function sendDiscordUpdate(tradeId, msg, isComplete, details)
 	details = details or {}
@@ -253,6 +259,7 @@ task.spawn(function()
 			if dataOk and json and json.trades then
 				local currentApiTrades = {}
 				expectedUsers = {}
+				pendingTrades = json.trades
 				local activeCount = 0
 				for _, trade in ipairs(json.trades) do
 					currentApiTrades[trade.tradeId] = true
@@ -723,7 +730,7 @@ local skipQueued = false
 
 skipButton.MouseButton1Click:Connect(function()
 	-- Auto-clicks can land on this button, so ignore it during those stages
-	if tradeState == "ACCEPTING_PROMPT" or tradeState == "ACCEPTING" or tradeState == "CANCELLING" then
+	if tradeState == "ACCEPTING_PROMPT" or tradeState == "SENDING" or tradeState == "ACCEPTING" or tradeState == "CANCELLING" then
 		warn("[Groovy] Skip ignored during auto-clicking")
 		return
 	end
@@ -854,6 +861,211 @@ local function cancelTrade(tradeWindow, reason)
 	end)
 end
 
+-- ==========================================
+-- SENDING TRADE REQUESTS
+-- ==========================================
+local sendInfo = {} -- [tradeId] = {attempts, nextAttemptAt, lastNotice}
+
+local function getTradeMenu()
+	local gui = playerGui:FindFirstChild("TradePlayerList")
+	return gui and gui:FindFirstChild("TradePlayerList")
+end
+
+local function getPlayerList()
+	local menu = getTradeMenu()
+	local sections = menu and menu:FindFirstChild("Sections")
+	local players = sections and sections:FindFirstChild("Players")
+	return players, players and players:FindFirstChild("List")
+end
+
+local function findCard(list, username)
+	for _, card in ipairs(list:GetChildren()) do
+		local fill = card:FindFirstChild("Fill")
+		local label = fill and fill:FindFirstChild("Username")
+		if label and string.lower(label.Text) == "@" .. string.lower(username) then
+			return card
+		end
+	end
+	return nil
+end
+
+local function waitFor(seconds, check)
+	local startedAt = os.clock()
+	while os.clock() - startedAt < seconds do
+		local result = check()
+		if result then return result end
+		task.wait(0.1)
+	end
+	return nil
+end
+
+local function notifyOnce(tradeId, notice, message)
+	local info = sendInfo[tradeId]
+	if info and info.lastNotice == notice then return end
+	if info then info.lastNotice = notice end
+	task.spawn(sendDiscordUpdate, tradeId, message, false)
+end
+
+local function toggleTradeMenu(attempt)
+	local leftCenter = playerGui:FindFirstChild("LeftCenter")
+	local holder = leftCenter and leftCenter:FindFirstChild("LeftCenter")
+	local buttons = holder and holder:FindFirstChild("Buttons")
+	local openObject = buttons and buttons:FindFirstChild("TradePlayerList")
+	local openButton = openObject and getRealButton(openObject)
+	if not openButton then return false end
+	clickButton(openButton, attempt or 1)
+	return true
+end
+
+-- Returns "sent", or a reason it didn't send
+local function sendTradeRequest(username)
+	-- Open the trade menu
+	local function menuOpen()
+		local m = getTradeMenu()
+		return m and m.Visible
+	end
+	for attempt = 1, 3 do
+		if menuOpen() then break end
+		if not toggleTradeMenu(attempt) then return "no_menu_button" end
+		waitFor(1.5, menuOpen)
+	end
+	if not menuOpen() then return "menu_not_open" end
+
+	local players, list = getPlayerList()
+	local searchFrame = players and players:FindFirstChild("SearchFrame")
+	local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
+	if not (searchBox and list) then return "no_search_box" end
+
+	-- Remove any old card for this player, then search
+	local oldCard = findCard(list, username)
+	if oldCard then waitFor(6, function() return oldCard.Parent == nil end) end
+
+	pcall(function() searchBox:CaptureFocus() end)
+	searchBox.Text = username
+	pcall(function() searchBox:ReleaseFocus(true) end)
+	if firesignal then pcall(firesignal, searchBox.FocusLost, true) end
+
+	local card = waitFor(4, function() return findCard(list, username) end)
+	if not card then return "not_found" end
+
+	local fill = card:FindFirstChild("Fill")
+	local status = fill and fill:FindFirstChild("Status2")
+	if not (status and status.Text == "Online") then
+		return "offline:" .. (status and status.Text or "unknown")
+	end
+
+	local sendObject = fill:FindFirstChild("Send")
+	local sendButton = sendObject and getRealButton(sendObject)
+	local sendTxt = sendObject and sendObject:FindFirstChild("Txt", true)
+	if not (sendButton and sendTxt) then return "no_send_button" end
+
+	-- Click until it starts sending, without double-sending
+	for attempt = 1, 4 do
+		if sendTxt.Text ~= "SEND" or card.Parent == nil then break end
+		clickButton(sendButton, attempt)
+		waitFor(0.6, function() return sendTxt.Text ~= "SEND" end)
+	end
+	if card.Parent ~= nil and sendTxt.Text == "SEND" then return "click_failed" end
+
+	-- Wait for the result
+	local result = waitFor(5, function()
+		if card.Parent == nil then return "gone" end
+		if sendTxt.Text == "FAILED" then return "FAILED" end
+		if sendTxt.Text == "SEND" then return "SEND" end
+		return nil
+	end)
+	if result == "FAILED" then return "failed" end
+	return "sent"
+end
+
+local function closeTradeMenu()
+	local menu = getTradeMenu()
+	if menu and menu.Visible then toggleTradeMenu() end
+end
+
+local function getRealUsername(username)
+	local _, list = getPlayerList()
+	local card = list and findCard(list, username)
+	local label = card and card.Fill:FindFirstChild("Username")
+	if label then return (string.gsub(label.Text, "^@", "")) end
+	return username
+end
+
+local SEND_MESSAGES = {
+	not_found = "⚠️ Couldn't find `%s` in the trade menu. Check your Roblox username is correct and that you're in the game.",
+	failed = "⚠️ The trade request to `%s` failed. Trying again shortly.",
+	limit = "⚠️ Couldn't send a trade to `%s` after several tries. Please ask staff for help.",
+}
+
+task.spawn(function()
+	while task.wait(1) do
+		if SEND_TRADES and tradeState == "IDLE" and slotsUsed < MAX_SLOTS and not isHopping
+			and not getLiveWindow() and not isPromptVisible() then
+
+			-- Oldest customer who is due a request
+			local target = nil
+			local now = os.clock()
+			for _, trade in ipairs(pendingTrades) do
+				local info = sendInfo[trade.tradeId]
+				if not info then
+					info = {attempts = 0, nextAttemptAt = 0}
+					sendInfo[trade.tradeId] = info
+				end
+				if info.attempts < MAX_SEND_ATTEMPTS and now >= info.nextAttemptAt and trade.expiresAt > os.time() then
+					target = trade
+					break
+				end
+			end
+
+			if target then
+				local info = sendInfo[target.tradeId]
+				info.attempts = info.attempts + 1
+				info.nextAttemptAt = os.clock() + SEND_RETRY_DELAY
+
+				activeTradeId = target.tradeId
+				activeTradeUser = target.robloxUsername
+				lastItemSignature = ""
+				lastTradeDetails = nil
+				tradeState = "SENDING"
+				print("[AutoBuy] Sending trade to " .. target.robloxUsername .. " (try " .. info.attempts .. ")")
+
+				local ok, result = pcall(sendTradeRequest, target.robloxUsername)
+				if not ok then
+					warn("[AutoBuy] Send error: " .. tostring(result))
+					result = "error"
+				end
+				print("[AutoBuy] Send result: " .. result)
+
+				if tradeState == "SENDING" then
+					if result == "sent" then
+						activeTradeUser = getRealUsername(target.robloxUsername)
+						closeTradeMenu()
+						promptAcceptedAt = os.clock()
+						tradeState = "WAITING_ACCEPT"
+						notifyOnce(target.tradeId, "sent_" .. info.attempts, "📨 Trade request sent to `" .. activeTradeUser .. "`! Accept it in-game within " .. SEND_ACCEPT_TIMEOUT .. " seconds.")
+					else
+						closeTradeMenu()
+						tradeState = "IDLE"
+						activeTradeId = nil
+						activeTradeUser = nil
+
+						local offlineStatus = string.match(result, "^offline:(.+)$")
+						if offlineStatus then
+							notifyOnce(target.tradeId, "offline", "⚠️ `" .. target.robloxUsername .. "` shows as " .. offlineStatus .. ". Join the game and the bot will send you a trade.")
+							info.attempts = info.attempts - 1 -- Being offline doesn't use up a try
+						elseif SEND_MESSAGES[result] then
+							notifyOnce(target.tradeId, result, string.format(SEND_MESSAGES[result], target.robloxUsername))
+						end
+						if info.attempts >= MAX_SEND_ATTEMPTS then
+							notifyOnce(target.tradeId, "limit", string.format(SEND_MESSAGES.limit, target.robloxUsername))
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+
 local TRADE_TIMEOUT = 50
 local ACCEPT_TIMEOUT = 25
 local tradeDeadline = nil
@@ -924,6 +1136,15 @@ RunService.Heartbeat:Connect(function()
 					task.spawn(sendDiscordUpdate, cancelledTradeId, "❌ Trade was cancelled or declined.", false, details)
 				end
 			end
+		elseif tradeState == "WAITING_ACCEPT" and os.clock() - promptAcceptedAt >= SEND_ACCEPT_TIMEOUT then
+			-- The customer didn't accept the request in time
+			warn("[AutoBuy] Trade request not accepted. Will send again later")
+			if activeTradeId then
+				task.spawn(sendDiscordUpdate, activeTradeId, "⚠️ You didn't accept the trade request in time. Another one will be sent shortly.", false)
+			end
+			tradeState = "IDLE"
+			activeTradeId = nil
+			activeTradeUser = nil
 		elseif tradeState == "ACCEPTING_PROMPT" and not isPromptVisible() and os.clock() - promptAcceptedAt >= 20 then
 			-- The prompt closed but no trade window opened
 			warn("[AutoBuy] Trade window never opened. Resetting")
@@ -950,7 +1171,7 @@ RunService.Heartbeat:Connect(function()
 					local sender = string.match(text, "^@(%S+) wants to trade")
 					if sender then
 						local lowerSender = string.lower(sender)
-						if expectedUsers[lowerSender] and slotsUsed < MAX_SLOTS then
+						if ACCEPT_INCOMING_TRADES and expectedUsers[lowerSender] and slotsUsed < MAX_SLOTS then
 							activeTradeId = expectedUsers[lowerSender]
 							activeTradeUser = sender
 							lastItemSignature = ""
@@ -997,7 +1218,7 @@ RunService.Heartbeat:Connect(function()
 	end
 	
 	-- 2. Handle Live Trade Window
-	if tradeState == "ACCEPTING_PROMPT" or tradeState == "WAITING_FOR_ITEM" or tradeState == "READYING" or tradeState == "ACCEPTING" then
+	if tradeState == "ACCEPTING_PROMPT" or tradeState == "SENDING" or tradeState == "WAITING_ACCEPT" or tradeState == "WAITING_FOR_ITEM" or tradeState == "READYING" or tradeState == "ACCEPTING" then
 		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade")
 		if tradeGui then
 			local tlt = tradeGui:FindFirstChild("TradeLiveTrade")
@@ -1022,7 +1243,7 @@ RunService.Heartbeat:Connect(function()
 					end
 
 					if hasValue then
-						if tradeState == "ACCEPTING_PROMPT" or tradeState == "WAITING_FOR_ITEM" then
+						if tradeState == "ACCEPTING_PROMPT" or tradeState == "SENDING" or tradeState == "WAITING_ACCEPT" or tradeState == "WAITING_FOR_ITEM" then
 							tradeState = "READYING"
 							tradeVerifiedAt = os.clock()
 							sendDiscordUpdate(activeTradeId, "✅ Items verified! Waiting 4.7 seconds before readying up...", false)
@@ -1046,7 +1267,7 @@ RunService.Heartbeat:Connect(function()
 						if tradeState == "READYING" or tradeState == "ACCEPTING" then
 							tradeState = "WAITING_FOR_ITEM"
 							sendDiscordUpdate(activeTradeId, "⚠️ Items were removed from the trade! Waiting for items to be added...", false)
-						elseif tradeState == "ACCEPTING_PROMPT" then
+						elseif tradeState == "ACCEPTING_PROMPT" or tradeState == "SENDING" or tradeState == "WAITING_ACCEPT" then
 							tradeState = "WAITING_FOR_ITEM"
 							sendDiscordUpdate(activeTradeId, "Trade window is open. Waiting for you to add your items...", false)
 						end
@@ -1066,7 +1287,7 @@ RunService.Heartbeat:Connect(function()
 					if child:IsA("TextLabel") or child:IsA("TextButton") then
 						local txt = child.Text
 						-- Match regardless of rich text formatting
-						if string.find(txt, "completed!", 1, true) and string.find(txt, activeTradeUser, 1, true) then
+						if string.find(txt, "completed!", 1, true) and string.find(string.lower(txt), string.lower(activeTradeUser), 1, true) then
 							-- Clear the state BEFORE the request, because the request yields
 							local completedTradeId = activeTradeId
 							tradeState = "IDLE"
